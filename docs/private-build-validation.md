@@ -49,6 +49,7 @@ bun test tests/portablePreparation.test.ts tests/privateRelease.test.ts
 
 - Source restrictions disable the inspected auxiliary paths. They do not prove the absence of unknown malicious behavior in every dependency or provider.
 - The real-provider smoke check does not establish acceptance for every provider, account tier, model, streaming mode or quota path.
-- Windows/Linux builds and platform-specific permissions remain unverified.
+- Windows entry points are not ported to the private build. Windows/Linux builds and platform-specific permissions remain unverified.
+- A core surviving a force-killed GUI requires manual shutdown before the GUI can start its own core. Untracked processes are deliberately not adopted or stopped; see [recovery instructions](../PRIVATE_BUILD.md#recovery-after-a-forced-gui-exit). Forced-crash recovery has not been accepted as automatic behavior.
 - No independent cross-provider review or reproducible-build comparison is claimed.
 - The build downloads public source and dependencies. User-launched browsers, external agents and configured proxies retain their own networking policies.

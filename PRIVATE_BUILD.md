@@ -38,7 +38,15 @@ com.bchewy.easycliproxyapi.private
 
 Portable builds use `private-data` beside their executable. Existing upstream application data is not imported automatically. An existing service on port 8317 must be stopped by you, or the private app must be assigned a different port, before both can run.
 
+### Recovery after a forced GUI exit
+
+Normal application shutdown stops the core it owns. If the GUI is force-killed and its child survives, the relaunched GUI deliberately refuses to adopt or stop that untracked process. It may show the core as stopped while Start reports that a core is already running. A matching executable path or a checksum of the file on disk cannot prove which bytes the surviving process loaded.
+
+Quit the GUI, identify the old `cli-proxy-api` process from this private app's `cpa-core` directory in Activity Monitor, stop that process, then reopen the GUI. Do not stop an unrelated service solely because it uses the same port. Automatic recovery from this orphaned-process state is not provided.
+
 ## Build
+
+The accepted build target is **macOS ARM64**. The inherited `build.ps1` and `copy.ps1` scripts are not supported private-build entry points: they do not build the private core first and still request an online download that this fork rejects. Windows requires a separate port and validation; Linux is also unverified.
 
 The separate Go core is pinned in `core/source.lock.json`. Its complete modifications, dependency updates and privacy tests are in `core/patches/provider-only.patch`.
 
