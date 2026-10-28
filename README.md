@@ -1,3 +1,5 @@
+> **Private fork:** provider-only networking; online updates, remote catalogs, plugins and auxiliary network features are disabled. Read [PRIVATE_BUILD.md](PRIVATE_BUILD.md) for builds, behavior and verification limits.
+
 <p align="center">
   <strong>English</strong> |
   <a href="README.zh-CN.md">简体中文</a> |
