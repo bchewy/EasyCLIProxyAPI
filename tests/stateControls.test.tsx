@@ -42,7 +42,7 @@ const roleExceptions: Record<string, [number, number, string]> = {
   'components/claude-code/ClaudeCodeModelInputs.tsx': [0, 1, 'Field hint.'],
   'pages/AgentClientList.tsx': [0, 2, 'Result count and selection summary.'],
   'pages/AgentConfigBackupDialog.tsx': [0, 1, 'Loading text.'],
-  'pages/AgentsPage.tsx': [0, 4, 'Model hints.'],
+  'pages/AgentsPage.tsx': [0, 3, 'Model hints.'],
   'pages/ApiAccessPage.tsx': [0, 1, 'Model summary count.'],
   'pages/ConfigPanel.tsx': [2, 6, 'Reserved status slots, dirty badges, search count and disabled text.'],
   'pages/CoreHealthPanel.tsx': [1, 1, 'Role passed to EmptyState for the load error and loading placeholder.'],
@@ -50,7 +50,6 @@ const roleExceptions: Record<string, [number, number, string]> = {
   'pages/PluginInstallDialog.tsx': [1, 0, 'Field-level version error.'],
   'pages/PluginResourcePage.tsx': [0, 1, 'Loading text.'],
   'pages/PluginSettingsPanel.tsx': [0, 1, 'Loading text.'],
-  'pages/PluginsPage.tsx': [0, 2, 'Loading text.'],
   'pages/UsageEventsView.tsx': [0, 1, 'Role passed to EmptyState for the loading placeholder.'],
   'pages/VertexLoginCard.tsx': [0, 1, 'Login result summary.'],
 };

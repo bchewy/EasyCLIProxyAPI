@@ -87,20 +87,20 @@ export function AgentConfigurationFeedback({ pending, description, status = '' }
 
 export function AgentConfigManagementPanel({
   codexProviderControl, codexRemoteCompactionControl, codexApprovalModelControl,
-  pi, codex, busyAction, canTemplate, canUpdatePi, canUninstallPi, pluginInstalled, pluginVersion, updateLabel,
-  executablePath, onChooseExecutablePath, onClearExecutablePath, onBackup, onRestore, onTemplate, onClear, onUpdatePi, onUninstallPi, canClearIntegration, onClearIntegration,
+  pi, codex, busyAction, canTemplate, canUninstallPi, pluginInstalled, pluginVersion,
+  executablePath, onChooseExecutablePath, onClearExecutablePath, onBackup, onRestore, onTemplate, onClear, onUninstallPi, canClearIntegration, onClearIntegration,
   dualTargets, desktopExecutablePath, onChooseDesktopExecutablePath, onClearDesktopExecutablePath,
 }: {
   codexProviderControl?: ReactNode;
   codexRemoteCompactionControl?: ReactNode;
   codexApprovalModelControl?: ReactNode;
   pi: boolean; codex: boolean; busyAction: string | null; canTemplate: boolean;
-  canUpdatePi: boolean; canUninstallPi: boolean; pluginInstalled: boolean; pluginVersion: string | null; updateLabel: string;
+  canUninstallPi: boolean; pluginInstalled: boolean; pluginVersion: string | null;
   executablePath: string; onChooseExecutablePath: () => void; onClearExecutablePath: () => void;
   dualTargets: boolean; desktopExecutablePath: string;
   onChooseDesktopExecutablePath: () => void; onClearDesktopExecutablePath: () => void;
   onBackup: () => void; onRestore: () => void; onTemplate: () => void; onClear: () => void;
-  onUpdatePi: () => void; onUninstallPi: () => void;
+  onUninstallPi: () => void;
   canClearIntegration: boolean; onClearIntegration: () => void;
 }) {
   const { t } = useI18n();
@@ -169,12 +169,8 @@ export function AgentConfigManagementPanel({
     {pi ? <section className="agent-management-row">
       <div><h3>{t('agents.management.plugin')}</h3><p>{pluginInstalled
         ? t('agents.management.pluginVersion', { version: pluginVersion ?? t('agents.notFetched') })
-        : t('agents.management.pluginMissing')}</p>{updateLabel ? <Notice tone="info" variant="text" live={false}>{updateLabel}</Notice> : null}</div>
+        : t('agents.management.pluginMissing')}</p></div>
       {pluginInstalled ? <div className="agent-management-actions">
-        <button type="button" className="secondary-button" onClick={onUpdatePi} disabled={busy || !canUpdatePi}>
-          {busyAction === 'update-pi' ? <LoaderCircle size={16} className="spin" /> : <RefreshCw size={16} />}
-          {t(busyAction === 'update-pi' ? 'agents.pi.updating' : 'agents.pi.update')}
-        </button>
         <button type="button" className="danger-button" onClick={onUninstallPi} disabled={busy || !canUninstallPi}>
           {busyAction === 'uninstall-pi' ? <LoaderCircle size={16} className="spin" /> : <Trash2 size={16} />}
           {t(busyAction === 'uninstall-pi' ? 'agents.pi.uninstalling' : 'agents.pi.uninstall')}

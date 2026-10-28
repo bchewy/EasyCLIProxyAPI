@@ -440,6 +440,9 @@ pub(crate) fn set_core_plugins_enabled(
     gui_config_state: tauri::State<'_, GuiConfigState>,
     enabled: bool,
 ) -> Result<CoreConfigView, String> {
+    if enabled {
+        private_build::deny_auxiliary_network("Plugins")?;
+    }
     let mut settings = current_core_config_settings(gui_config_state.inner())?;
     settings.plugins_enabled = enabled;
     patch_core_plugins_enabled(settings.plugins_enabled)?;

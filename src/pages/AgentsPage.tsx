@@ -9,11 +9,8 @@ import {
   getAgentConfigStatuses,
   getDeepSeekHarnessProcessStatus,
   getAgentModels,
-  checkPiProviderUpdate,
   restoreCodexOfficialConfig,
   updateAgentConfig,
-  installPiProvider as installPiProviderCommand,
-  updatePiProvider as updatePiProviderCommand,
   repairPiProvider as repairPiProviderCommand,
   uninstallPiProvider as uninstallPiProviderCommand,
   applyAgentConfigTemplate,
@@ -35,7 +32,6 @@ import type {
   AgentLaunchTarget,
   ClaudeModelMappings,
   DeepSeekHarnessProcessStatus,
-  PiProviderUpdateStatus,
 } from '../services/agents';
 import { checkCodexOAuthLogin } from '../services/oauth';
 import { CopilotPluginStatus } from '../components/copilot/CopilotPluginStatus';
@@ -616,10 +612,8 @@ export function AgentsPage({ embedded = false, onConfigurationApplied }: AgentsP
   const [oauthConfigurationDraft, setOauthConfigurationDraftState] = useState<boolean | null>(
     () => codexOauthConfigurationDraftCache,
   );
-  const [piProviderUpdateStatus, setPiProviderUpdateStatus] = useState<PiProviderUpdateStatus | null>(null);
   const modelRequestRef = useRef(0);
   const statusRequestRef = useRef(0);
-  const piUpdateRequestRef = useRef(0);
   const claudeModelMappingsDirtyRef = useRef(claudeModelMappingsDirtyCache);
 
   const setClaudeModelMappingsDraftByClient = useCallback((
@@ -815,35 +809,6 @@ export function AgentsPage({ embedded = false, onConfigurationApplied }: AgentsP
   const resolvedDesktopEntries = suffixCollidingDesktopAliases(desktopEntries, models, appliedDesktopEntries);
   const desktopValidation = desktopModelValidation(resolvedDesktopEntries, models, appliedDesktopEntries);
 
-  const loadPiProviderUpdateStatus = useCallback(async () => {
-    const requestId = piUpdateRequestRef.current + 1;
-    piUpdateRequestRef.current = requestId;
-    try {
-      const nextStatus = await checkPiProviderUpdate();
-      if (piUpdateRequestRef.current === requestId) setPiProviderUpdateStatus(nextStatus);
-    } catch {
-      if (piUpdateRequestRef.current === requestId) setPiProviderUpdateStatus(null);
-    }
-  }, []);
-
-  useEffect(() => {
-    if (!isPiClient || !activeStatus?.pluginInstalled || !activeStatus.pluginVersion) {
-      piUpdateRequestRef.current += 1;
-      setPiProviderUpdateStatus(null);
-      return;
-    }
-    void loadPiProviderUpdateStatus();
-  }, [activeStatus?.pluginInstalled, activeStatus?.pluginVersion, isPiClient, loadPiProviderUpdateStatus]);
-
-  const piPluginUpdateAvailable = Boolean(
-    piProviderUpdateStatus?.updateAvailable
-      && piProviderUpdateStatus.installedVersion === activeStatus?.pluginVersion
-      && piProviderUpdateStatus.latestVersion,
-  );
-  const piPluginUpdateTitle = piPluginUpdateAvailable
-    ? t('agents.pi.updateAvailable', { version: piProviderUpdateStatus?.latestVersion ?? '' })
-    : activeStatus?.pluginVersion ?? undefined;
-
   useEffect(() => {
     if (!isClaudeModelMappingClient) return;
     const appliedMappings = selected === 'claude-code'
@@ -1017,7 +982,8 @@ export function AgentsPage({ embedded = false, onConfigurationApplied }: AgentsP
 
   const applySelectedConfiguration = () => {
     if (isPiClient) {
-      void (activeStatus?.pluginInstalled ? repairPiProvider() : installPiProvider());
+      if (activeStatus?.pluginInstalled) void repairPiProvider();
+      else setConfigurationError(t('privateBuild.piDownloadDisabled'));
       return;
     }
     void applyConfigurationChanges();
@@ -1278,47 +1244,6 @@ export function AgentsPage({ embedded = false, onConfigurationApplied }: AgentsP
     }
   };
 
-  const installPiProvider = async () => {
-    const model = requireSelectedModel();
-    if (!model) return;
-    setBusyAction('install-pi');
-    setConfigurationError('');
-    setConfigurationNotice('');
-    setClearNotice('');
-    try {
-      await installPiProviderCommand({ model, executableOverrides: executablePaths });
-      clearPendingChanges();
-      await reloadStatusesAfterAction();
-      setConfigurationNotice(t('agents.management.pluginInstalled'));
-      onConfigurationApplied?.();
-    } catch (requestError) {
-      setConfigurationError(String(requestError));
-    } finally {
-      setBusyAction(null);
-    }
-  };
-
-  const updatePiProvider = async () => {
-    const model = requireSelectedModel();
-    if (!model) return;
-    setBusyAction('update-pi');
-    setConfigurationError('');
-    setConfigurationNotice('');
-    setClearNotice('');
-    setPiProviderUpdateStatus(null);
-    try {
-      await updatePiProviderCommand({ model, executableOverrides: executablePaths });
-      clearPendingChanges();
-      await reloadStatusesAfterAction();
-      setConfigurationNotice(t('agents.management.pluginUpdated'));
-      await loadPiProviderUpdateStatus();
-    } catch (requestError) {
-      setConfigurationError(String(requestError));
-    } finally {
-      setBusyAction(null);
-    }
-  };
-
   const repairPiProvider = async () => {
     const model = requireSelectedModel();
     if (!model) return;
@@ -1342,7 +1267,6 @@ export function AgentsPage({ embedded = false, onConfigurationApplied }: AgentsP
     setConfigurationError('');
     setConfigurationNotice('');
     setClearNotice('');
-    setPiProviderUpdateStatus(null);
     try {
       await uninstallPiProviderCommand({ executableOverrides: executablePaths });
       clearPendingChanges();
@@ -1869,6 +1793,7 @@ export function AgentsPage({ embedded = false, onConfigurationApplied }: AgentsP
               items={availableSubpages.map(subpage => ({ value: subpage.id, id: `agent-subpage-tab-${subpage.id}`, panelId: `agent-subpage-panel-${subpage.id}`, label: t(subpage.labelKey) }))} />
           ) : null}
           <div className="agent-config-scroll-region">
+          {isPiClient ? <Notice tone="info" variant="text">{t('privateBuild.piPackagesDisabled')}</Notice> : null}
           {embedded && selected === 'vscode-copilot' && activeSubpage === 'core' && activeStatus ? (
             <CopilotPluginStatus installed={activeStatus.pluginInstalled} version={activeStatus.pluginVersion} />
           ) : null}
@@ -1913,7 +1838,7 @@ export function AgentsPage({ embedded = false, onConfigurationApplied }: AgentsP
                     type="button"
                     className="primary-button"
                     onClick={applySelectedConfiguration}
-                    disabled={busy || !canEnable || configurationWriteBlocked}
+                    disabled={busy || !canEnable || configurationWriteBlocked || (isPiClient && !activeStatus?.pluginInstalled)}
                   >
                     {['apply', 'install-pi', 'repair-pi'].includes(busyAction ?? '') ? <LoaderCircle size={16} className="spin" /> : null}
                     {isPiClient
@@ -1958,18 +1883,8 @@ export function AgentsPage({ embedded = false, onConfigurationApplied }: AgentsP
                     <div>
                       <span>
                         {t('agents.pluginVersion')}
-                        {piPluginUpdateAvailable ? (
-                          <span
-                            className="agent-version-update-label"
-                            role="status"
-                            aria-label={piPluginUpdateTitle}
-                            title={piPluginUpdateTitle}
-                          >
-                            {t('agents.pi.updateAvailableShort')}
-                          </span>
-                        ) : null}
                       </span>
-                      <strong title={piPluginUpdateTitle}>{activeStatus?.pluginVersion ?? t('agents.notFetched')}</strong>
+                      <strong title={activeStatus?.pluginVersion ?? undefined}>{activeStatus?.pluginVersion ?? t('agents.notFetched')}</strong>
                     </div>
                   </>
                 ) : (
@@ -2152,7 +2067,7 @@ export function AgentsPage({ embedded = false, onConfigurationApplied }: AgentsP
                   <div className={`agent-save-actions${!isPiClient ? " agent-codex-save-actions" : ""}`}>
                   {closeConfigurationButton}
                   <button type="button" className="primary-button" onClick={applySelectedConfiguration}
-                    disabled={busy || !canEnable || configurationWriteBlocked}
+                    disabled={busy || !canEnable || configurationWriteBlocked || (isPiClient && !activeStatus?.pluginInstalled)}
                   >
                     {['apply', 'install-pi', 'repair-pi'].includes(busyAction ?? '') ? <LoaderCircle size={16} className="spin" /> : null}
                     {isPiClient && !activeStatus?.pluginInstalled ? t('agents.pi.install') : configurationActionLabel}
@@ -2206,15 +2121,13 @@ export function AgentsPage({ embedded = false, onConfigurationApplied }: AgentsP
                 dualTargets={hasIndependentCliAndApp} desktopExecutablePath={executablePaths[`${selected}:app`] ?? ''}
                 onChooseDesktopExecutablePath={() => void chooseExecutablePath(true)}
                 onClearDesktopExecutablePath={() => clearExecutablePath(true)}
-                canTemplate={canEnable && !nativeOauth} canUpdatePi={canEnable && !configurationWriteBlocked && Boolean(activeStatus?.pluginInstalled)}
+                canTemplate={canEnable && !nativeOauth}
                 canUninstallPi={launchEnabled && Boolean(activeStatus?.pluginInstalled)}
                 pluginInstalled={Boolean(activeStatus?.pluginInstalled)} pluginVersion={activeStatus?.pluginVersion ?? null}
-                updateLabel={piPluginUpdateAvailable ? piPluginUpdateTitle ?? '' : ''}
                 onBackup={() => void createManualBackup()} onRestore={() => setBackupsOpen(true)}
                 onTemplate={() => void openDefaultConfirmation()} onClear={openClearConfirmation}
                 canClearIntegration={!loading && Boolean(activeStatus?.configValid && activeStatus.supportedPlatform)}
                 onClearIntegration={() => void clearCodexIntegration()}
-                onUpdatePi={() => void updatePiProvider()}
                 onUninstallPi={() => void uninstallPiProvider()} />
             </div>
           ) : null}

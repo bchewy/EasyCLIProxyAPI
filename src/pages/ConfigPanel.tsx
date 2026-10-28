@@ -3,7 +3,6 @@ import { EmptyState } from '../components/EmptyState';
 import { Switch } from '../components/Switch';
 import { onConfigFilesChanged } from '../services/events';
 import { restartCoreProcess } from '../services/coreLifecycle';
-import { openExternalUrl } from '../services/appSettings';
 import {
   getCoreConfigSettings,
   getSoftwareSettings,
@@ -59,7 +58,6 @@ import {
 import { useCoreRuntime } from '../coreRuntime';
 import { useI18n } from '../i18n';
 import { MessageNotice, FloatingNotice, useAppNotice } from '../appNotice';
-import { webUiManagementUrl } from '../services/clientAccess';
 import { ThinkingAliasesPage } from './ThinkingAliasesPage';
 import { SensitiveWordsPage } from './SensitiveWordsPage';
 import { Tabs } from '../components/Tabs';
@@ -70,10 +68,13 @@ import { TemplateConfigSection } from '../components/TemplateConfigSection';
 import { SettingsHelp } from '../components/SettingsHelp';
 import { templateMessages, templateText } from '../i18n/templateConfig';
 import {
-  settingsCategories, settingsTemplateGroups,
-  allSettingsTemplateGroups, settingsMessages, takeRequestedSettingField, type SettingsCategory,
+  settingsCategories, settingsTemplateGroups as upstreamSettingsTemplateGroups,
+  settingsMessages, takeRequestedSettingField, type SettingsCategory,
 } from '../services/settingsNavigation';
 import { Select } from '../components/Select';
+
+const settingsTemplateGroups = { ...upstreamSettingsTemplateGroups, general: [] };
+const allSettingsTemplateGroups = Object.values(settingsTemplateGroups).flat();
 
 type ConfigAction =
   | 'add-key'
@@ -655,27 +656,6 @@ export function ConfigPanelPage() {
     }
   };
 
-  const openWebUi = async () => {
-    try {
-      const [latestSettings, latestTlsSettings] = await Promise.all([
-        getCoreConfigSettings(),
-        getCoreTlsSettings(),
-      ]);
-      applySettings(latestSettings, 'preserve');
-      setTlsSettings(latestTlsSettings);
-      if (!otherDraftDirtyRef.current.tls) {
-        setTlsEnabledDraft(latestTlsSettings.enabled);
-        setTlsCertDraft(latestTlsSettings.cert);
-        setTlsKeyDraft(latestTlsSettings.key);
-      }
-      await openExternalUrl({
-        url: webUiManagementUrl(latestSettings.port, latestTlsSettings.enabled, latestSettings.host),
-      });
-    } catch (error) {
-      managementFeedback.showNotice({ key: 'config.webuiKey.error.openFailed', variables: { error: String(error) } }, 'error');
-    }
-  };
-
   const saveTlsSettings = async () => {
     tlsFeedback.clearNotice();
     if (tlsSettings === null || busyAction !== null) return;
@@ -1168,18 +1148,7 @@ export function ConfigPanelPage() {
           <div className="config-panel-heading">
             <div className="config-heading-title">
               <ShieldCheck size={18} aria-hidden="true" />
-              <h2>{t('config.webuiKey.title')}</h2><SettingsHelp label={t('config.webuiKey.title')}>{t('config.webuiKey.description')} {t('config.webuiKey.securityHint')}</SettingsHelp>
-            </div>
-            <div className="config-heading-actions">
-              <button
-                type="button"
-                className="secondary-button compact-button"
-                disabled={loading || settings === null}
-                onClick={() => void openWebUi()}
-                title={settings ? webUiManagementUrl(settings.port, tlsSettings?.enabled, settings.host) : undefined}
-              >
-                {t('config.webuiKey.open')}
-              </button>
+              <h2>{t('privateBuild.managementKey')}</h2><SettingsHelp label={t('privateBuild.managementKey')}>{t('privateBuild.managementKeyHint')}</SettingsHelp>
             </div>
           </div>
 
@@ -1324,11 +1293,11 @@ export function ConfigPanelPage() {
                   id="config-input-config-network-listenHost"
                   className={`config-network-input ${hostError ? 'error' : ''}`}
                   type="text"
-                  value={hostDraft}
-                  disabled={controlsDisabled}
+                  value="127.0.0.1"
+                  disabled
                   placeholder="127.0.0.1"
                   aria-invalid={Boolean(hostError)}
-                  title={hostError || templateText(templateMessages.hostHint, locale)}
+                  title={t('privateBuild.localOnly')}
                   onChange={(event) => {
                     markDraftDirty('host');
                     setHostDraft(event.currentTarget.value);

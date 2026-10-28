@@ -25,6 +25,7 @@ mod native_i18n;
 mod oauth_browser;
 mod plugin_webview;
 mod plugins;
+mod private_build;
 mod privacy_mode;
 mod progress;
 mod provider_health;
@@ -943,7 +944,7 @@ impl Default for GuiConfigFile {
             image_generation_user_selected: false,
             api_keys: vec![default_api_key_entry()],
             api_access_remarks: Vec::new(),
-            management_secret_key: LEGACY_DEFAULT_MANAGEMENT_SECRET_KEY.to_string(),
+            management_secret_key: private_build::random_secret(),
             debug: false,
             commercial_mode: false,
             logging_to_file: false,
@@ -2528,10 +2529,7 @@ fn main() {
                 return;
             }
             let mut config = GuiConfigFile::default();
-            // If the GUI configuration cannot be read before the kernel starts,
-            // use the shared recovery key so requests and the generated kernel
-            // configuration stay synchronized.
-            config.management_secret_key = LEGACY_DEFAULT_MANAGEMENT_SECRET_KEY.to_string();
+            config.management_secret_key = private_build::random_secret();
             if let Err(sanitize_error) = sanitize_gui_config(&mut config) {
                 eprintln!("Failed to initialize fixed credentials directory: {sanitize_error}");
             }

@@ -2789,42 +2789,28 @@ fn agent_command_path_prioritizes_the_executable_and_preserves_discovered_paths(
 }
 
 #[test]
-fn agent_version_probe_exposes_the_executable_directory_to_child_commands() {
-    let home = agent_test_home("version-path");
+fn private_build_does_not_execute_agents_to_discover_versions() {
+    let home = agent_test_home("version-probe-disabled");
     let executable_directory = home.join("node-runtime/bin");
     fs::create_dir_all(&executable_directory).unwrap();
+    let marker = executable_directory.join("version-probe-ran");
 
     #[cfg(target_os = "windows")]
-    let (executable, helper) = (
-        executable_directory.join("pi.cmd"),
-        executable_directory.join("agent-version-helper.cmd"),
-    );
+    let executable = executable_directory.join("pi.cmd");
     #[cfg(not(target_os = "windows"))]
-    let (executable, helper) = (
-        executable_directory.join("pi"),
-        executable_directory.join("agent-version-helper"),
-    );
+    let executable = executable_directory.join("pi");
 
     #[cfg(target_os = "windows")]
-    {
-        fs::write(&executable, "@echo off\r\nagent-version-helper.cmd\r\n").unwrap();
-        fs::write(&helper, "@echo off\r\necho pi 1.2.3\r\n").unwrap();
-    }
+    fs::write(&executable, "@echo off\r\necho ran > \"%~dp0version-probe-ran\"\r\necho pi 1.2.3\r\n").unwrap();
     #[cfg(not(target_os = "windows"))]
     {
         use std::os::unix::fs::PermissionsExt;
-
-        fs::write(&executable, "#!/usr/bin/env sh\nagent-version-helper\n").unwrap();
-        fs::write(&helper, "#!/usr/bin/env sh\nprintf 'pi 1.2.3\\n'\n").unwrap();
+        fs::write(&executable, "#!/bin/sh\ntouch \"$(dirname \"$0\")/version-probe-ran\"\nprintf 'pi 1.2.3\\n'\n").unwrap();
         fs::set_permissions(&executable, fs::Permissions::from_mode(0o755)).unwrap();
-        fs::set_permissions(&helper, fs::Permissions::from_mode(0o755)).unwrap();
     }
 
-    assert_eq!(
-        read_agent_version(&executable, &home).as_deref(),
-        Some("pi 1.2.3")
-    );
-
+    assert!(read_agent_version(&executable, &home).is_none());
+    assert!(!marker.exists(), "version discovery executed the external program");
     fs::remove_dir_all(home).unwrap();
 }
 

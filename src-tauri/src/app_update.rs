@@ -143,6 +143,7 @@ pub(crate) fn persist_automatic_download_source_switch(
 
 #[tauri::command]
 pub(crate) fn open_external_url(app: tauri::AppHandle, url: String) -> Result<(), String> {
+    crate::private_build::deny_auxiliary_network("External navigation")?;
     open_external_url_inner(&app, &url)
 }
 
@@ -152,6 +153,7 @@ pub(crate) async fn check_app_update(
     state: tauri::State<'_, AppUpdateState>,
     gui_config_state: tauri::State<'_, GuiConfigState>,
 ) -> Result<AppUpdateInfo, String> {
+    crate::private_build::deny_auxiliary_network("Application update checks")?;
     // Startup and manual version checks also refresh model defaults. Keep this
     // independent so a catalog download failure does not fail the version check.
     let catalog_app = app.clone();
@@ -676,6 +678,7 @@ pub(crate) async fn start_app_update(
     app: tauri::AppHandle,
     state: tauri::State<'_, AppUpdateState>,
 ) -> Result<(), String> {
+    crate::private_build::deny_auxiliary_network("Application downloads")?;
     if portable_update_platform_key().is_none() {
         return Err("The current platform does not support in-app automatic upgrades".to_string());
     }

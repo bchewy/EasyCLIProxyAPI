@@ -3,8 +3,7 @@
   "bundle": {
     "resources": {
       "../core-version.txt": "core-version.txt",
-      "../cpa-core/CLIProxyAPI_*": "cpa-core/",
-      "../portable-app.json": "portable-app.json"
+      "../cpa-core/CLIProxyAPI_*": "cpa-core/"
     }
   }
 }

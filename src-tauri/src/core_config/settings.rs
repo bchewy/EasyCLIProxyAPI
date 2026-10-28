@@ -99,6 +99,9 @@ pub(crate) fn validate_management_secret_key(secret_key: &str) -> Result<(), Str
 
 pub(crate) fn validate_strong_management_secret_key(secret_key: &str) -> Result<(), String> {
     validate_management_secret_key(secret_key)?;
+    if secret_key.trim() == LEGACY_DEFAULT_MANAGEMENT_SECRET_KEY {
+        return Err("The shared default management key is not allowed".to_string());
+    }
     if secret_key.trim().is_empty() {
         return Err("WebUI key cannot be empty".to_string());
     }
@@ -129,13 +132,13 @@ pub(crate) fn recover_management_secret(
                     return kernel_key.trim().to_string();
                 }
                 if is_hashed_management_secret_key(kernel_key) {
-                    return LEGACY_DEFAULT_MANAGEMENT_SECRET_KEY.to_string();
+                    return private_build::random_secret();
                 }
             }
             return String::new();
         }
     }
-    LEGACY_DEFAULT_MANAGEMENT_SECRET_KEY.to_string()
+    private_build::random_secret()
 }
 
 pub(crate) fn normalize_management_secret_key(secret_key: String) -> Result<String, String> {
@@ -146,7 +149,7 @@ pub(crate) fn normalize_management_secret_key(secret_key: String) -> Result<Stri
 
 pub(crate) fn is_example_core_api_key(api_key: &str) -> bool {
     let value = api_key.trim();
-    value == "your-api-key" || value.starts_with("your-api-key-")
+    value == DEFAULT_API_KEY || value == "your-api-key" || value.starts_with("your-api-key-")
 }
 
 pub(crate) fn is_hashed_management_secret_key(secret_key: &str) -> bool {
@@ -791,11 +794,15 @@ pub(crate) fn write_bytes_directly(path: &Path, content: &[u8]) -> Result<(), St
         .map_err(|error| format!("Failed to create configuration directory {}: {error}", path_to_string(directory)))?;
 
     let write_result = (|| -> io::Result<()> {
-        let mut file = fs::OpenOptions::new()
-            .create(true)
-            .write(true)
-            .truncate(false)
-            .open(path)?;
+        let mut options = fs::OpenOptions::new();
+        options.create(true).write(true).truncate(false);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::OpenOptionsExt;
+            options.mode(0o600).custom_flags(libc::O_NOFOLLOW);
+        }
+        let mut file = options.open(path)?;
+        private_build::secure_file(&file)?;
         file.seek(SeekFrom::Start(0))?;
         file.write_all(content)?;
         file.set_len(content.len() as u64)?;
@@ -825,7 +832,15 @@ pub(crate) fn write_bytes_atomically(path: &Path, content: &[u8]) -> Result<(), 
     ));
 
     let write_result = (|| -> io::Result<()> {
-        let mut file = File::create(&temporary_path)?;
+        let mut options = fs::OpenOptions::new();
+        options.create_new(true).write(true);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::OpenOptionsExt;
+            options.mode(0o600);
+        }
+        let mut file = options.open(&temporary_path)?;
+        private_build::secure_file(&file)?;
         file.write_all(content)?;
         file.sync_all()?;
         drop(file);
@@ -1703,7 +1718,7 @@ pub(crate) fn apply_external_core_proxy_override(
 
 pub(crate) fn default_api_key_entry() -> GuiApiKeyEntry {
     GuiApiKeyEntry {
-        key: DEFAULT_API_KEY.to_string(),
+        key: private_build::random_secret(),
         remark: DEFAULT_API_KEY_INITIAL_REMARK.to_string(),
     }
 }
@@ -1718,7 +1733,7 @@ pub(crate) fn effective_agent_api_key(config: &GuiConfigFile) -> &str {
         .iter()
         .map(|entry| entry.key.trim())
         .find(|key| !key.is_empty())
-        .unwrap_or(DEFAULT_API_KEY)
+        .unwrap_or("")
 }
 
 pub(crate) fn merge_core_api_keys_with_gui_metadata(
@@ -2082,6 +2097,27 @@ pub(crate) fn sanitize_gui_config_at(
     persistent_auth_dir: &Path,
 ) -> Result<bool, String> {
     let mut changed = false;
+    if config.host != "127.0.0.1" || config.allow_lan {
+        config.host = "127.0.0.1".to_string();
+        config.allow_lan = false;
+        changed = true;
+    }
+    if config.management_secret_key.trim() == LEGACY_DEFAULT_MANAGEMENT_SECRET_KEY {
+        config.management_secret_key = private_build::random_secret();
+        changed = true;
+    }
+    let previous_keys = config.api_keys.len();
+    config.api_keys.retain(|entry| !is_example_core_api_key(&entry.key));
+    if config.api_keys.len() != previous_keys {
+        if config.api_keys.is_empty() {
+            config.api_keys.push(default_api_key_entry());
+        }
+        changed = true;
+    }
+    if config.plugins_enabled {
+        config.plugins_enabled = false;
+        changed = true;
+    }
     let normalized_locale = normalize_app_locale(&config.locale);
     if config.locale != normalized_locale {
         config.locale = normalized_locale.to_string();
@@ -2383,12 +2419,26 @@ pub(crate) fn write_gui_config_to_path(
     toml::from_str::<GuiConfigFile>(&content)
         .map_err(|error| format!("Failed to validate GUI configuration: {error}"))?;
     if existing.as_deref() == Some(content.as_str()) {
-        return Ok(());
+        let mut options = fs::OpenOptions::new();
+        options.read(true);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::OpenOptionsExt;
+            options.custom_flags(libc::O_NOFOLLOW);
+        }
+        let file = options.open(config_path).map_err(|error| error.to_string())?;
+        return private_build::secure_file(&file).map_err(|error| error.to_string());
     }
     write_bytes_directly(config_path, content.as_bytes())
 }
 
 pub(crate) fn validate_gui_config(config: &GuiConfigFile) -> Result<(), String> {
+    if !is_loopback_host(&config.host) {
+        return Err("This private build only binds to localhost".to_string());
+    }
+    if config.plugins_enabled {
+        return Err("Plugins are disabled in this private build".to_string());
+    }
     if config.port == 0 {
         return Err("GUI configuration port must be between 1 and 65535".to_string());
     }

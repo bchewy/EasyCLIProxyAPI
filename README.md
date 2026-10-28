@@ -1,3 +1,5 @@
+> **Private fork (macOS ARM64):** provider-only networking; online updates, remote catalogs, plugins and auxiliary network features are disabled. Read [PRIVATE_BUILD.md](PRIVATE_BUILD.md) for the private build instructions and limits. The remaining README describes upstream features; its Windows scripts and online-update instructions do not apply to this build.
+
 <p align="center">
   <strong>English</strong> |
   <a href="README.zh-CN.md">简体中文</a> |

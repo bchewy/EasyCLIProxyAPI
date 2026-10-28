@@ -8,7 +8,6 @@ const owners: Record<string, readonly string[]> = {
   'components/AuthFileModelsDialog.tsx': ['model-discovery-search'],
   'components/ModelSelectionPanel.tsx': ['model-transfer-search'],
   'pages/ConfigPanel.tsx': ['config-settings-search'],
-  'pages/PluginsPage.tsx': ['plugin-search'],
   'pages/AgentClientList.tsx': ['agent-client-search'],
   'pages/CoreHealthPanel.tsx': ['core-health-search'],
   'pages/ThinkingAliasesPage.tsx': ['thinking-model-search'],

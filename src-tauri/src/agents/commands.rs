@@ -228,6 +228,7 @@ pub(crate) async fn resolve_pi_default_model(
 pub(crate) async fn check_pi_provider_update(
     app: tauri::AppHandle,
 ) -> Result<PiProviderUpdateStatus, String> {
+    crate::private_build::deny_auxiliary_network("Pi package update checks")?;
     let home = app
         .path()
         .home_dir()
@@ -258,6 +259,7 @@ pub(crate) async fn install_pi_provider(
     model: String,
     executable_overrides: Option<HashMap<String, String>>,
 ) -> Result<AgentConfigActionResult, String> {
+    crate::private_build::deny_auxiliary_network("Pi package installation")?;
     let home = app
         .path()
         .home_dir()
@@ -300,6 +302,7 @@ pub(crate) async fn update_pi_provider(
     model: String,
     executable_overrides: Option<HashMap<String, String>>,
 ) -> Result<AgentConfigActionResult, String> {
+    crate::private_build::deny_auxiliary_network("Pi package updates")?;
     let home = app
         .path()
         .home_dir()
@@ -384,6 +387,7 @@ pub(crate) async fn update_codex_model_catalog(
 pub(crate) async fn update_codex_model_catalog_inner(
     app: &tauri::AppHandle,
 ) -> Result<CodexModelCatalogUpdateResult, String> {
+    crate::private_build::deny_auxiliary_network("Remote model catalogs")?;
     let _update_guard = CODEX_CATALOG_UPDATE_LOCK.lock().await;
     let proxy_url = app.state::<GuiConfigState>().snapshot()?.proxy_url;
     let client = build_http_client_with_proxy(
@@ -472,21 +476,8 @@ pub(crate) fn load_codex_model_catalog_override(app: &tauri::AppHandle) -> Resul
     load_codex_model_catalog_override_from_path(&codex_model_catalog_override_path(app)?)
 }
 
-fn load_codex_model_catalog_override_from_path(path: &Path) -> Result<(), String> {
-    let signature = codex_catalog_file_signature(path);
-    match fs::read_to_string(path) {
-        Ok(catalog_json) => {
-            codex_catalog::activate_catalog_json(&catalog_json)
-                .map_err(|error| format!("Invalid local Codex model catalog update file: {error}"))?;
-        }
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-            codex_catalog::reset_to_embedded_catalog()?;
-        }
-        Err(error) => {
-            return Err(format!("Failed to read local Codex model catalog update file: {error}"));
-        }
-    }
-    store_codex_catalog_file_signature(path, signature);
+fn load_codex_model_catalog_override_from_path(_path: &Path) -> Result<(), String> {
+    codex_catalog::reset_to_embedded_catalog()?;
     Ok(())
 }
 
@@ -1872,5 +1863,20 @@ mod codex_catalog_file_tests {
         fs::remove_file(&path).unwrap();
         load_codex_model_customizations_from_path(&path).unwrap();
         assert!(!codex_catalog_file_changed(&path));
+    }
+}
+
+#[cfg(test)]
+mod private_build_catalog_tests {
+    use super::*;
+
+    #[test]
+    fn private_build_ignores_cached_remote_instruction_overrides() {
+        let path = std::env::temp_dir().join(format!("private-catalog-{}.json", crate::private_build::random_secret()));
+        // This deliberately malformed override must never be parsed or activated.
+        fs::write(&path, br#"{"base_instructions":"PRIVATE_TEST_REMOTE_INSTRUCTION", "invalid":"#).unwrap();
+        load_codex_model_catalog_override_from_path(&path).unwrap();
+        assert!(!codex_catalog::current_catalog_json().unwrap().contains("PRIVATE_TEST_REMOTE_INSTRUCTION"));
+        fs::remove_file(path).unwrap();
     }
 }

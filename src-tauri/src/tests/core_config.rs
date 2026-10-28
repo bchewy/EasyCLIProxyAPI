@@ -2,17 +2,19 @@ use super::support::*;
 use super::*;
 
 #[test]
-fn legacy_string_api_keys_keep_custom_keys_without_special_protection() {
+fn legacy_shared_keys_are_removed_while_custom_keys_survive() {
     let legacy = "port = 8317\nallow-lan = false\nrun-on-startup = false\nauth-dir = \"/tmp/oauth\"\napi-keys = [\"123456\", \"custom-key\"]\nmanagement-secret-key = \"123456\"\nplugins-enabled = false\nrouting-strategy = \"round-robin\"\n";
     let mut config = toml::from_str::<GuiConfigFile>(legacy).unwrap();
 
-    assert!(!sanitize_gui_config(&mut config).unwrap());
-    assert_eq!(
-        gui_api_key_values(&config.api_keys),
-        vec!["123456", "custom-key"]
-    );
+    assert!(sanitize_gui_config(&mut config).unwrap());
+    assert_eq!(gui_api_key_values(&config.api_keys), vec!["custom-key"]);
     assert!(config.api_keys[0].remark.is_empty());
-    assert!(config.api_keys[1].remark.is_empty());
+    assert_eq!(config.management_secret_key.len(), 64);
+    assert!(config.management_secret_key.bytes().all(|byte| byte.is_ascii_hexdigit()));
+    assert_ne!(config.management_secret_key, LEGACY_DEFAULT_MANAGEMENT_SECRET_KEY);
+    let migrated_secret = config.management_secret_key.clone();
+    assert!(!sanitize_gui_config(&mut config).unwrap());
+    assert_eq!(config.management_secret_key, migrated_secret);
 
     let serialized = toml::to_string_pretty(&config).unwrap();
     assert!(serialized.contains("[[api-keys]]"));
@@ -81,7 +83,8 @@ fn core_config_view_exposes_api_key_metadata_for_the_webview() {
     let config = GuiConfigFile::default();
     let view = serde_json::to_value(CoreConfigView::from(&config)).unwrap();
 
-    assert_eq!(view["apiKeys"][0]["apiKey"], DEFAULT_API_KEY);
+    assert_eq!(view["apiKeys"][0]["apiKey"], config.api_keys[0].key);
+    assert_ne!(config.api_keys[0].key, DEFAULT_API_KEY);
     assert_eq!(view["apiKeys"][0]["remark"], DEFAULT_API_KEY_INITIAL_REMARK);
     assert!(view["apiKeys"][0].get("builtIn").is_none());
     assert_eq!(view["managementSecretConfigured"], true);
@@ -108,40 +111,44 @@ fn webui_management_secret_requires_a_non_empty_plaintext_value() {
     )
     .is_err());
     assert!(normalize_management_secret_key("bad\nsecret".to_string()).is_err());
-    assert_eq!(
-        normalize_management_secret_key("  123456  ".to_string()).unwrap(),
-        "123456"
-    );
+    assert!(normalize_management_secret_key("  123456  ".to_string()).is_err());
 }
 
 #[test]
 fn management_secret_recovery_synchronizes_kernel_and_request_credentials() {
     let hash = "$2a$10$abcdefghijklmnopqrstuuuuuuuuuuuuuuuuuuuuuuuuuuuuu";
     for (imported, saved, kernel_key, expected) in [
-        ("", None, None, "123456"),
-        (hash, None, None, "123456"),
-        (hash, Some(hash), None, "123456"),
-        ("bad\nkey", None, None, "123456"),
-        (hash, Some("known-secret"), None, "known-secret"),
-        ("", Some("known-secret"), None, "known-secret"),
-        ("", Some(""), None, ""),
-        ("", Some(""), Some(""), ""),
-        ("", Some(""), Some(hash), "123456"),
-        ("", Some(""), Some("kernel-secret"), "kernel-secret"),
-        ("new-secret", Some("old-secret"), Some(hash), "new-secret"),
+        ("", None, None, None),
+        (hash, None, None, None),
+        (hash, Some(hash), None, None),
+        ("bad\nkey", None, None, None),
+        (hash, Some("known-secret"), None, Some("known-secret")),
+        ("", Some("known-secret"), None, Some("known-secret")),
+        ("", Some(""), None, Some("")),
+        ("", Some(""), Some(""), Some("")),
+        ("", Some(""), Some(hash), None),
+        ("", Some(""), Some("kernel-secret"), Some("kernel-secret")),
+        ("new-secret", Some("old-secret"), Some(hash), Some("new-secret")),
     ] {
         let config = GuiConfigFile {
             management_secret_key: recover_management_secret(imported, saved, kernel_key),
             ..GuiConfigFile::default()
         };
-        assert_eq!(config.management_secret_key, expected);
+        if let Some(expected) = expected {
+            assert_eq!(config.management_secret_key, expected);
+        } else {
+            assert_eq!(config.management_secret_key.len(), 64);
+            assert!(config.management_secret_key.bytes().all(|byte| byte.is_ascii_hexdigit()));
+            assert_ne!(config.management_secret_key, recover_management_secret(imported, saved, kernel_key));
+        }
+        let expected = &config.management_secret_key;
         for (template, section) in [
             ("remote-management: {secret-key: stale}\n", "remote-management"),
             ("config-version: 8\nmanagement: {secret-key: stale}\n", "management"),
         ] {
             let updated = apply_gui_managed_settings(template, &config).unwrap();
             let document: serde_norway::Value = serde_norway::from_str(&updated).unwrap();
-            assert_eq!(document[section]["secret-key"], expected);
+            assert_eq!(document[section]["secret-key"], expected.as_str());
         }
         if !expected.is_empty() {
             assert_eq!(management_api::management_authorization(&config).unwrap(), format!("Bearer {expected}"));
@@ -1375,30 +1382,32 @@ fn yaml_edit_runtime_patch_adds_api_keys_to_core_style_config() {
 fn yaml_edit_runtime_patch_updates_existing_real_core_config() {
     let input = "host: 0.0.0.0\nremote-management:\n# nested comment\n  allow-remote: false\nauth-dir: /tmp/oauth\n# API keys for authentication\napi-keys:\n  - '123456'\n# Enable debug logging\ndebug: false\n\n# payload:\n#   filter:\n#     - models:\n#         - name: gemini\n";
     let rendered =
-        patch_core_api_keys_yaml(input, &[DEFAULT_API_KEY.to_string(), "new-key".to_string()])
+        patch_core_api_keys_yaml(input, &["new-key".to_string()])
             .unwrap();
     let parsed = serde_norway::from_str::<serde_norway::Value>(&rendered)
         .unwrap_or_else(|error| panic!("invalid YAML: {error}\n{rendered}"));
     assert_eq!(
         core_config_settings_from_value(&parsed).unwrap().api_keys,
-        vec![DEFAULT_API_KEY, "new-key"]
+        vec!["new-key"]
     );
+    assert!(!rendered.contains("123456"), "{rendered}");
 }
 
 #[test]
 fn runtime_api_key_patch_replaces_indentationless_core_sequence() {
     let input =
         "host: 0.0.0.0\nport: 8317\nauth-dir: /tmp/oauth\napi-keys:\n- '123456'\ndebug: false\n";
-    let rendered = patch_core_api_keys_yaml(input, &[DEFAULT_API_KEY.to_string()])
+    let rendered = patch_core_api_keys_yaml(input, &["replacement-key".to_string()])
         .unwrap_or_else(|error| panic!("patch failed: {error}"));
     let parsed = serde_norway::from_str::<serde_norway::Value>(&rendered)
         .unwrap_or_else(|error| panic!("invalid YAML: {error}\n{rendered}"));
 
     assert_eq!(
         core_config_settings_from_value(&parsed).unwrap().api_keys,
-        vec![DEFAULT_API_KEY]
+        vec!["replacement-key"]
     );
-    assert_eq!(rendered.matches("- '123456'").count(), 1, "{rendered}");
+    assert!(!rendered.contains("123456"), "{rendered}");
+    assert_eq!(rendered.matches("replacement-key").count(), 1, "{rendered}");
     assert!(rendered.contains("debug: false"), "{rendered}");
 }
 
@@ -1987,7 +1996,7 @@ fn core_config_saves_preserve_the_file_watched_by_the_running_core() {
 fn startup_preserves_all_user_owned_yaml_and_only_applies_gui_managed_values() {
     let template = "# Current release template\nhost: \"\" # template bind address\nport: 8317\n\n# Client authentication\napi-keys:\n  - template-key\n\n# Plugin runtime\nplugins:\n  enabled: false # plugin switch\n\n# Credential routing\nrouting:\n  strategy: round-robin # routing switch\n\n# New release option\nnew-option: true\nnested:\n  # Nested template comment\n  keep: template\n  added: from-template\nlist:\n  - template-item\n";
     let current = "# User-edited configuration\nhost: 127.0.0.1\nport: 9000\n# User-owned nested values\nnested:\n  keep: current\n  current-only: retained\nlist:\n  - current-a\n  - current-b\nextra: true\ncustom-provider:\n  base-url: https://example.com/v1\n  headers:\n    X-Custom-Header: custom-value\n  models:\n    - name: custom-model\n      aliases: [custom-a, custom-b]\nplugins:\n  custom-runtime-options:\n    sandbox: strict\n    environment:\n      CUSTOM_FLAG: enabled\nrouting:\n  custom-rules:\n    - match: custom-*\n      target: custom-provider\nremote-management:\n  custom-dashboard-option: retained\n";
-    let config = GuiConfigFile {
+    let mut config = GuiConfigFile {
         locale: "zh-CN".to_string(),
         port: 9527,
         allow_lan: true,
@@ -2038,6 +2047,10 @@ fn startup_preserves_all_user_owned_yaml_and_only_applies_gui_managed_values() {
         max_retry_interval: 5,
         streaming_bootstrap_retries: 1,
     };
+    assert!(sanitize_gui_config(&mut config).unwrap());
+    assert_eq!(config.host, "127.0.0.1");
+    assert!(!config.allow_lan);
+    assert!(!config.plugins_enabled);
     let merged = merge_core_config_yaml(template, Some(current), &config).unwrap();
     let current_document = serde_norway::from_str::<serde_norway::Value>(current).unwrap();
 
@@ -2049,12 +2062,12 @@ fn startup_preserves_all_user_owned_yaml_and_only_applies_gui_managed_values() {
     let document = serde_norway::from_str::<serde_norway::Value>(&merged).unwrap();
     assert_eq!(
         document["host"],
-        serde_norway::Value::String("0.0.0.0".to_string())
+        serde_norway::Value::String("127.0.0.1".to_string())
     );
     assert_eq!(document["port"], serde_norway::to_value(9527_u16).unwrap());
-    assert_eq!(document["api-keys"][0], DEFAULT_API_KEY);
+    assert_eq!(document["api-keys"][0], config.api_keys[0].key);
     assert_eq!(document["api-keys"][1], "gui-key");
-    assert_eq!(document["plugins"]["enabled"], true, "{merged}");
+    assert_eq!(document["plugins"]["enabled"], false, "{merged}");
     assert_eq!(document["routing"]["strategy"], "fill-first");
     assert_eq!(document["proxy-url"], "socks5://127.0.0.1:7890");
     assert_eq!(document["routing"]["session-affinity"], true);
@@ -2139,7 +2152,7 @@ fn startup_merge_without_current_config_uses_gui_defaults() {
     );
     assert_eq!(document["port"], serde_norway::to_value(8317_u16).unwrap());
     assert_eq!(document["debug"], serde_norway::Value::Bool(false));
-    assert_eq!(document["api-keys"][0], DEFAULT_API_KEY, "{merged}");
+    assert_eq!(document["api-keys"][0], config.api_keys[0].key, "{merged}");
     assert_eq!(document["plugins"]["enabled"], false);
     assert_eq!(document["routing"]["strategy"], "round-robin");
     assert_eq!(document["commercial-mode"], false);
@@ -2179,7 +2192,7 @@ fn startup_merge_can_shrink_template_api_key_sequence() {
     let document = serde_norway::from_str::<serde_norway::Value>(&merged)
         .unwrap_or_else(|error| panic!("invalid YAML: {error}\n{merged}"));
 
-    assert_eq!(document["api-keys"][0], DEFAULT_API_KEY);
+    assert_eq!(document["api-keys"][0], config.api_keys[0].key);
     assert_eq!(document["api-keys"].as_sequence().unwrap().len(), 1);
     assert_eq!(document["debug"], false);
     assert_eq!(
@@ -2250,14 +2263,15 @@ fn startup_merge_repairs_disabled_fields_rejected_by_native_provider_keys() {
 }
 
 #[test]
-fn v8_signed_retry_weighted_routing_and_empty_host_roundtrip() {
+fn v8_retry_and_routing_survive_private_loopback_normalization() {
     let content = "config-version: 8\nserver: {host: '', port: 8317}\nrouting: {strategy: weighted-round-robin, retry: {max-retry-interval: -1}}\nmanagement: {secret-key: ''}\n";
     let settings = core_config_settings_from_value(&serde_norway::from_str(content).unwrap()).unwrap();
     let mut config = GuiConfigFile::default();
     apply_core_settings_to_gui_config(&mut config, &settings);
     sanitize_gui_config(&mut config).unwrap();
     validate_gui_config(&config).unwrap();
-    assert_eq!(config.host, "");
+    assert_eq!(config.host, "127.0.0.1");
+    assert!(!config.allow_lan);
     assert_eq!(config.max_retry_interval, -1);
     assert_eq!(config.routing_strategy, "weighted-round-robin");
     assert!(config.management_secret_key.is_empty());
@@ -2266,7 +2280,7 @@ fn v8_signed_retry_weighted_routing_and_empty_host_roundtrip() {
     assert_eq!(restored.max_retry_interval, -1);
     let saved = apply_gui_managed_settings(content, &restored).unwrap();
     let document: serde_norway::Value = serde_norway::from_str(&saved).unwrap();
-    assert_eq!(document["server"]["host"], "");
+    assert_eq!(document["server"]["host"], "127.0.0.1");
     assert_eq!(document["management"]["secret-key"], "");
     assert_eq!(document["routing"]["retry"]["max-retry-interval"], -1);
 }
