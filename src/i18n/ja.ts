@@ -4,6 +4,19 @@ import { homeJa } from './home';
 import { authFileListJa } from './authFileList';
 
 export const jaOverrides = {
+  "privateBuild.name": "EasyCLIProxyAPI プライベート版",
+  "privateBuild.providerOnly": "モデルプロバイダーへの接続のみ",
+  "privateBuild.policy": "設定済みの AI プロバイダーへの接続のみ有効です。オンライン更新、プラグイン、モデル一覧のダウンロード、料金同期は無効です。更新するには新しいプライベート版をインストールしてください。",
+  "privateBuild.pluginsDisabled": "プラグインは独自にネットワーク接続できるため、このプライベート版では無効です。",
+  "privateBuild.pricesManual": "オンライン料金同期は無効です。料金は手動で入力できます。",
+  "privateBuild.piPackagesDisabled": "Pi パッケージのインストールと更新は無効です。既存のローカル連携は設定できます。",
+  "privateBuild.piDownloadDisabled": "このプライベート版では Pi パッケージのダウンロードは無効です。",
+  "privateBuild.bundledCore": "同梱のプライベートコア",
+  "privateBuild.restoreHint": "復元では検証済みのローカル同梱ファイルでコアを置き換えます。ダウンロードは行いません。",
+  "privateBuild.restore": "同梱のプライベートコアを復元",
+  "privateBuild.managementKey": "ローカル管理キー",
+  "privateBuild.managementKeyHint": "このデスクトップアプリがローカルコアを管理するために使用します。別のブラウザー管理画面は無効です。",
+  "privateBuild.localOnly": "このプライベート版はローカル接続のみ受け付けます。",
   'app.window.minimize': '最小化',
   'app.window.maximize': '最大化',
   'app.window.restore': '元のサイズに戻す',

@@ -8,7 +8,6 @@ import {
   useContext,
   useEffect,
   useMemo,
-  useRef,
   useState,
   type ReactNode,
 } from 'react';
@@ -56,7 +55,6 @@ export function AppUpdateProvider({ children }: { children: ReactNode }) {
   const [error, setError] = useState('');
   const [checking, setChecking] = useState(false);
   const [confirmOpen, setConfirmOpen] = useState(false);
-  const startupCheckStarted = useRef(false);
 
   const check = useCallback(async () => {
     setChecking(true);
@@ -105,10 +103,6 @@ export function AppUpdateProvider({ children }: { children: ReactNode }) {
       else stopListening = stop;
     });
 
-    if (!startupCheckStarted.current) {
-      startupCheckStarted.current = true;
-      void check();
-    }
     return () => {
       disposed = true;
       stopListening?.();

@@ -4,6 +4,19 @@ import { homeEn } from '../home';
 import { authFileListEn } from '../authFileList';
 
 export const en: Record<MessageKey, string> = {
+  "privateBuild.name": "EasyCLIProxyAPI Private",
+  "privateBuild.providerOnly": "Provider connections only",
+  "privateBuild.policy": "Only configured AI provider connections are enabled. Online updates, plugins, catalog downloads and price syncing are disabled. Install a new private build to upgrade.",
+  "privateBuild.pluginsDisabled": "Plugins are disabled in this private build because they can open their own network connections.",
+  "privateBuild.pricesManual": "Online price syncing is disabled. Prices can be entered manually.",
+  "privateBuild.piPackagesDisabled": "Pi package installation and updates are disabled. Existing local integrations can still be configured.",
+  "privateBuild.piDownloadDisabled": "Pi package downloads are disabled in this private build.",
+  "privateBuild.bundledCore": "Bundled private core",
+  "privateBuild.restoreHint": "Restore replaces the core with the verified local bundle. No download is performed.",
+  "privateBuild.restore": "Restore bundled private core",
+  "privateBuild.managementKey": "Local management key",
+  "privateBuild.managementKeyHint": "Used by this desktop app to manage the local core. The separate browser management panel is disabled.",
+  "privateBuild.localOnly": "This private build accepts local connections only.",
   'app.window.minimize': 'Minimize',
   'app.window.maximize': 'Maximize',
   'app.window.restore': 'Restore window',

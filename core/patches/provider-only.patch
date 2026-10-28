@@ -1,0 +1,1589 @@
+diff --git a/cmd/server/main.go b/cmd/server/main.go
+index 960d5e5..7d29ba2 100644
+--- a/cmd/server/main.go
++++ b/cmd/server/main.go
+@@ -17,7 +17,6 @@ import (
+ 	"strings"
+ 	"time"
+ 
+-	"github.com/joho/godotenv"
+ 	configaccess "github.com/router-for-me/CLIProxyAPI/v8/internal/access/config_access"
+ 	"github.com/router-for-me/CLIProxyAPI/v8/internal/api"
+ 	"github.com/router-for-me/CLIProxyAPI/v8/internal/buildinfo"
+@@ -201,6 +200,10 @@ func main() {
+ 
+ 	// Parse the command-line flags.
+ 	flag.Parse()
++	if strings.TrimSpace(homeJWT) != "" {
++		log.Error("Home mode is disabled in the private build")
++		return
++	}
+ 
+ 	if discoverGateways || discoverJSON {
+ 		cfgInclude, cfgExclude := cmd.LoadDiscoveryScanFilters(configPath)
+@@ -252,23 +255,12 @@ func main() {
+ 		return
+ 	}
+ 
+-	// Load environment variables from .env if present.
+-	if errLoad := godotenv.Load(filepath.Join(wd, ".env")); errLoad != nil {
+-		if !errors.Is(errLoad, os.ErrNotExist) {
+-			log.WithError(errLoad).Warn("failed to load .env file")
+-		}
+-	}
++	// Private builds accept explicit configuration, never an ambient .env file.
+ 
+ 	lookupEnv := func(keys ...string) (string, bool) {
+-		for _, key := range keys {
+-			if value, ok := os.LookupEnv(key); ok {
+-				if trimmed := strings.TrimSpace(value); trimmed != "" {
+-					return trimmed, true
+-				}
+-			}
+-		}
+ 		return "", false
+ 	}
++
+ 	writableBase := util.WritablePath()
+ 
+ 	if strings.TrimSpace(homeJWT) == "" {
+diff --git a/go.mod b/go.mod
+index 9236727..ccfcb7a 100644
+--- a/go.mod
++++ b/go.mod
+@@ -15,7 +15,7 @@ require (
+ 	github.com/gorilla/websocket v1.5.3
+ 	github.com/jackc/pgx/v5 v5.9.2
+ 	github.com/joho/godotenv v1.5.1
+-	github.com/klauspost/compress v1.17.4
++	github.com/klauspost/compress v1.18.7
+ 	github.com/libp2p/zeroconf/v2 v2.2.0
+ 	github.com/miekg/dns v1.1.43
+ 	github.com/minio/minio-go/v7 v7.0.66
+@@ -32,12 +32,12 @@ require (
+ 	github.com/tidwall/gjson v1.18.0
+ 	github.com/tidwall/sjson v1.2.5
+ 	github.com/tiktoken-go/tokenizer v0.8.1
+-	golang.org/x/crypto v0.57.0
+-	golang.org/x/net v0.60.0
++	golang.org/x/crypto v0.58.0
++	golang.org/x/net v0.62.0
+ 	golang.org/x/oauth2 v0.30.0
+-	golang.org/x/sync v0.23.0
+-	golang.org/x/sys v0.48.0
+-	golang.org/x/text v0.42.0
++	golang.org/x/sync v0.24.0
++	golang.org/x/sys v0.49.0
++	golang.org/x/text v0.43.0
+ 	gopkg.in/natefinch/lumberjack.v2 v2.2.1
+ 	gopkg.in/yaml.v3 v3.0.1
+ )
+diff --git a/go.sum b/go.sum
+index 50767c7..e662d9b 100644
+--- a/go.sum
++++ b/go.sum
+@@ -116,6 +116,8 @@ github.com/kevinburke/ssh_config v1.6.0 h1:J1FBfmuVosPHf5GRdltRLhPJtJpTlMdKTBjRg
+ github.com/kevinburke/ssh_config v1.6.0/go.mod h1:q2RIzfka+BXARoNexmF9gkxEX7DmvbW9P4hIVx2Kg4M=
+ github.com/klauspost/compress v1.17.4 h1:Ej5ixsIri7BrIjBkRZLTo6ghwrEtHFk7ijlczPW4fZ4=
+ github.com/klauspost/compress v1.17.4/go.mod h1:/dCuZOvVtNoHsyb+cuJD3itjs3NbnF6KH9zAO4BDxPM=
++github.com/klauspost/compress v1.18.7 h1:aUyZsS4kH3QTKurYhAOwAHxllVPnOthb3vPfnF1Ehjw=
++github.com/klauspost/compress v1.18.7/go.mod h1:cwPg85FWrGar70rWktvGQj8/hthj3wpl0PGDogxkrSQ=
+ github.com/klauspost/cpuid/v2 v2.0.1/go.mod h1:FInQzS24/EEf25PyTYn52gqo7WaD8xa0213Md/qVLRg=
+ github.com/klauspost/cpuid/v2 v2.0.9/go.mod h1:FInQzS24/EEf25PyTYn52gqo7WaD8xa0213Md/qVLRg=
+ github.com/klauspost/cpuid/v2 v2.3.0 h1:S4CRMLnYUhGeDFDqkGriYKdfoFlDnMtqTiI/sFzhA9Y=
+@@ -265,6 +267,8 @@ golang.org/x/crypto v0.56.0 h1:GUh5Ii4J5jtcseSMiRqr1jXCNHoxjeV9Fmekc2oLy6Y=
+ golang.org/x/crypto v0.56.0/go.mod h1:OMW5y6CY9l38uPLmxU6l6pwcXp1obtLo3e6gT7gQR2I=
+ golang.org/x/crypto v0.57.0 h1:3ZVCjf8Ggz7zneR/EHRVx68Ctf+2pmIMP2UFhh9cC6M=
+ golang.org/x/crypto v0.57.0/go.mod h1:Fdz0i5U6CoizGwLda9DttjSk6qlZo25zYNtR+ycvuZA=
++golang.org/x/crypto v0.58.0 h1:COkYLr4k7nDI4r6QtMML2AfzeIswWHAJthLS6K/M/54=
++golang.org/x/crypto v0.58.0/go.mod h1:Xh+kl5A+M0gMiWDytH2Hhr5Z7WbNCpv/eB/EFgfSk+w=
+ golang.org/x/exp v0.0.0-20231006140011-7918f672742d h1:jtJma62tbqLibJ5sFQz8bKtEM8rJBtfilJ2qTU199MI=
+ golang.org/x/exp v0.0.0-20231006140011-7918f672742d/go.mod h1:ldy0pHrwJyGW56pPQzzkH36rKxoZW1tw7ZJpeKx+hdo=
+ golang.org/x/net v0.0.0-20210226172049-e18ecbb05110/go.mod h1:m0MpNAwzfU5UDzcl9v0D8zg8gWTRqZa9RBIspLL5mdg=
+@@ -273,6 +277,8 @@ golang.org/x/net v0.57.0 h1:K5+3DljvIuDG9/Jv9rvyMywYNFCQ9RSUY6OOTTkT+tE=
+ golang.org/x/net v0.57.0/go.mod h1:KpXc8iv+r3XplLAG/f7Jsf9RPszJzdR0f58q9vGOuEU=
+ golang.org/x/net v0.60.0 h1:79p50tfZlm0J9YfoDsSi639qSXNGVwEzOPLCxM2FsYU=
+ golang.org/x/net v0.60.0/go.mod h1:2DA/G1UfVbCpQPeWTmMPGY7Cs2PkBkwu743bVX5PIVg=
++golang.org/x/net v0.62.0 h1:18ELalfM5+XNRwzM2nYqXsZQ9ByS1uhj2O/U7+5jqRY=
++golang.org/x/net v0.62.0/go.mod h1:WgDCOTH8iwtB66T4/GfI94AHo/hhdb7Hah9NDseQfiI=
+ golang.org/x/oauth2 v0.30.0 h1:dnDm7JmhM45NNpd8FDDeLhK6FwqbOf4MLCM9zb1BOHI=
+ golang.org/x/oauth2 v0.30.0/go.mod h1:B++QgG3ZKulg6sRPGD/mqlHQs5rB3Ml9erfeDY7xKlU=
+ golang.org/x/sync v0.0.0-20210220032951-036812b2e83c/go.mod h1:RxMgew5VJxzue5/jJTE5uejpjVlOe/izrB70Jof72aM=
+@@ -280,6 +286,8 @@ golang.org/x/sync v0.22.0 h1:SZjpbeLmrCk4xhRSZFNZW5gFUeCeFgjekvI/+gfScek=
+ golang.org/x/sync v0.22.0/go.mod h1:9xrNwdLfx4jkKbNva9FpL6vEN7evnE43NNNJQ2LF3+0=
+ golang.org/x/sync v0.23.0 h1:KameEIfc1IkluZyXWLn39Wd4tURc6GbCiISGiZm2bQk=
+ golang.org/x/sync v0.23.0/go.mod h1:sUUOizhqBxiL6pEWpqNLUiaJn1ShEbZ6BBqskPbjZm0=
++golang.org/x/sync v0.24.0 h1:iqiDrGoDgyuvAKrhLQthUEzU/R378N78gXbBjxed7oA=
++golang.org/x/sync v0.24.0/go.mod h1:sUUOizhqBxiL6pEWpqNLUiaJn1ShEbZ6BBqskPbjZm0=
+ golang.org/x/sys v0.0.0-20201119102817-f84b799fce68/go.mod h1:h1NjWce9XRLGQEsW7wpKNCjG9DtNlClVuFLEZdDNbEs=
+ golang.org/x/sys v0.0.0-20210303074136-134d130e1a04/go.mod h1:h1NjWce9XRLGQEsW7wpKNCjG9DtNlClVuFLEZdDNbEs=
+ golang.org/x/sys v0.0.0-20210423082822-04245dca01da/go.mod h1:h1NjWce9XRLGQEsW7wpKNCjG9DtNlClVuFLEZdDNbEs=
+@@ -291,10 +299,13 @@ golang.org/x/sys v0.47.0 h1:o7XGOvZQCADBQQ4Y7VNq2dRWQR7JmOUW8Kxx4ZsNgWs=
+ golang.org/x/sys v0.47.0/go.mod h1:4GL1E5IUh+htKOUEOaiffhrAeqysfVGipDYzABqnCmw=
+ golang.org/x/sys v0.48.0 h1:bbX/i/6MgT9BVLM9RT1thmxL04yeTAhbEz4SyadbXoo=
+ golang.org/x/sys v0.48.0/go.mod h1:hNLxWAXmnKAxqDtdwIYC4bM9oQPEecfsnNMuSxOs3og=
++golang.org/x/sys v0.49.0 h1:XbzkgYJHdqh/8m2Uu0W/dQv8nktxx4BFHp1M0gROTXA=
++golang.org/x/sys v0.49.0/go.mod h1:hNLxWAXmnKAxqDtdwIYC4bM9oQPEecfsnNMuSxOs3og=
+ golang.org/x/term v0.0.0-20201126162022-7de9c90e9dd1/go.mod h1:bj7SfCRtBDWHUb9snDiAeCFNEtKQo2Wmx5Cou7ajbmo=
+ golang.org/x/term v0.45.0 h1:NwWyBmoJCbfTHpxrWoZ9C6/VxOf7ic219I8xZZFdrf0=
+ golang.org/x/term v0.45.0/go.mod h1:9aqxs0blBcrm/n0L9QW0aRVD+ktan8ssZromtqJC43w=
+ golang.org/x/term v0.46.0 h1:3+OXuTbaKDgwk8jTi3aSLHRlmWqHEUDUtxnbFigO4YE=
++golang.org/x/term v0.47.0 h1:cpyOwQkr2Nzxe2p6KnrTG7Ei2wtzjsuSjhpXXepZ/BM=
+ golang.org/x/text v0.3.3/go.mod h1:5Zoc/QRtKVWzQhOtBMvqHzDpF6irO9z98xDceosuGiQ=
+ golang.org/x/text v0.3.6/go.mod h1:5Zoc/QRtKVWzQhOtBMvqHzDpF6irO9z98xDceosuGiQ=
+ golang.org/x/text v0.40.0 h1:Ub2Z6/xjgF1WrYQz2nuITOEegKFtiIy+rieRJ5lHZKs=
+@@ -303,6 +314,8 @@ golang.org/x/text v0.41.0 h1:vz/seA0lnX87Othu2f/0L24RcgrXD9/YFTSuGjj3rH8=
+ golang.org/x/text v0.41.0/go.mod h1:jvf1O8ajNzZqhSrQBPbutR/EB83Cc0CFrezNQIwbb5M=
+ golang.org/x/text v0.42.0 h1:JbOZXgfeCPU9gacVtYliJqOhD+zhrEqK4LfdpmlUZqI=
+ golang.org/x/text v0.42.0/go.mod h1:ojzP1Z+2QtioaF8DTtO8K5q7JWVVYwZKenzujK0Zd0E=
++golang.org/x/text v0.43.0 h1:1QivrlhwAsnMOcqgOdl9my7s9OyZl8O5/UGUTJVXoWc=
++golang.org/x/text v0.43.0/go.mod h1:hbSIYA/amXcRXTFSZqh8tWHEoqRvvbKPJ2uz/KU+a+s=
+ golang.org/x/time v0.14.0 h1:MRx4UaLrDotUKUdCIqzPC48t1Y9hANFKIRpNx+Te8PI=
+ golang.org/x/time v0.14.0/go.mod h1:eL/Oa2bBBK0TkX57Fyni+NgnyQQN4LitPmob2Hjnqw4=
+ golang.org/x/tools v0.0.0-20180917221912-90fa682c2a6e/go.mod h1:n7NCudcB/nEzxVGmLbDWY5pfWTLqBcC2KZ6jyYvM4mQ=
+diff --git a/internal/api/handlers/management/config_basic.go b/internal/api/handlers/management/config_basic.go
+index a6c02c4..43e1e2b 100644
+--- a/internal/api/handlers/management/config_basic.go
++++ b/internal/api/handlers/management/config_basic.go
+@@ -3,6 +3,7 @@ package management
+ import (
+ 	"encoding/json"
+ 	"fmt"
++	"github.com/router-for-me/CLIProxyAPI/v8/internal/privatebuild"
+ 	"io"
+ 	"net/http"
+ 	"os"
+@@ -46,6 +47,10 @@ func setLatestReleaseRequestHeaders(req *http.Request) {
+ 
+ // GetLatestVersion returns the latest release version from GitHub without downloading assets.
+ func (h *Handler) GetLatestVersion(c *gin.Context) {
++	if privatebuild.Enabled {
++		c.JSON(403, gin.H{"error": privatebuild.ErrDisabled.Error()})
++		return
++	}
+ 	client := &http.Client{Timeout: 10 * time.Second}
+ 	proxyURL := ""
+ 	if h != nil && h.cfg != nil {
+diff --git a/internal/api/handlers/management/handler.go b/internal/api/handlers/management/handler.go
+index 529c3a8..99c0250 100644
+--- a/internal/api/handlers/management/handler.go
++++ b/internal/api/handlers/management/handler.go
+@@ -72,8 +72,8 @@ type configReloadSnapshot struct {
+ 
+ // NewHandler creates a new management handler instance.
+ func NewHandler(cfg *config.Config, configFilePath string, manager *coreauth.Manager) *Handler {
+-	envSecret, _ := os.LookupEnv("MANAGEMENT_PASSWORD")
+-	envSecret = strings.TrimSpace(envSecret)
++	// Private builds use only the configured local management credential.
++	envSecret := ""
+ 
+ 	h := &Handler{
+ 		cfg:                 cfg.CloneForRuntime(),
+diff --git a/internal/api/handlers/management/plugin_store.go b/internal/api/handlers/management/plugin_store.go
+index dc21424..2cb6a4a 100644
+--- a/internal/api/handlers/management/plugin_store.go
++++ b/internal/api/handlers/management/plugin_store.go
+@@ -5,6 +5,7 @@ import (
+ 	"encoding/json"
+ 	"errors"
+ 	"fmt"
++	"github.com/router-for-me/CLIProxyAPI/v8/internal/privatebuild"
+ 	"io"
+ 	"net/http"
+ 	"runtime"
+@@ -118,6 +119,10 @@ type sourcedPlugin struct {
+ }
+ 
+ func (h *Handler) ListPluginStore(c *gin.Context) {
++	if privatebuild.Enabled {
++		c.JSON(403, gin.H{"error": privatebuild.ErrDisabled.Error()})
++		return
++	}
+ 	pluginsEnabled, pluginsDir, proxyURL, sourceConfigs, storeAuth, configs, host := h.pluginStoreSnapshot()
+ 	resolvedPluginsDir, errResolvePluginsDir := config.ResolvePluginsDir(pluginsDir)
+ 	if errResolvePluginsDir != nil {
+@@ -219,6 +224,10 @@ func (h *Handler) ListPluginStore(c *gin.Context) {
+ }
+ 
+ func (h *Handler) InstallPluginFromStore(c *gin.Context) {
++	if privatebuild.Enabled {
++		c.JSON(403, gin.H{"error": privatebuild.ErrDisabled.Error()})
++		return
++	}
+ 	h.installPluginFromStore(c, runtime.GOOS, runtime.GOARCH)
+ }
+ 
+diff --git a/internal/api/server_management.go b/internal/api/server_management.go
+index 1eabc9c..d9abd7a 100644
+--- a/internal/api/server_management.go
++++ b/internal/api/server_management.go
+@@ -2,6 +2,7 @@ package api
+ 
+ import (
+ 	"context"
++	"github.com/router-for-me/CLIProxyAPI/v8/internal/privatebuild"
+ 	"net/http"
+ 	"os"
+ 	"strings"
+@@ -310,6 +311,10 @@ func (s *Server) pluginResourceNoRoute(c *gin.Context) {
+ }
+ 
+ func (s *Server) serveManagementControlPanel(c *gin.Context) {
++	if privatebuild.Enabled {
++		c.AbortWithStatus(http.StatusNotFound)
++		return
++	}
+ 	cfg := s.getConfig()
+ 	if cfg == nil || cfg.Home.Enabled || cfg.RemoteManagement.DisableControlPanel {
+ 		c.AbortWithStatus(http.StatusNotFound)
+diff --git a/internal/cmd/discover.go b/internal/cmd/discover.go
+index c871abd..1e4856f 100644
+--- a/internal/cmd/discover.go
++++ b/internal/cmd/discover.go
+@@ -4,6 +4,7 @@ import (
+ 	"context"
+ 	"encoding/json"
+ 	"fmt"
++	"github.com/router-for-me/CLIProxyAPI/v8/internal/privatebuild"
+ 	"io"
+ 	"net"
+ 	"os"
+@@ -112,6 +113,9 @@ func DoDiscoverWithServiceType(timeout time.Duration, jsonOutput bool, serviceTy
+ 
+ // DoDiscoverWithOptions executes LAN discovery with explicit scan options.
+ func DoDiscoverWithOptions(opts DiscoverOptions) int {
++	if privatebuild.Enabled {
++		return 1
++	}
+ 	include, exclude := ResolveDiscoveryInterfaceFilters(opts.Include, opts.Exclude, nil, nil)
+ 	return runDiscoverWithOptions(opts, os.Stdout, os.Stderr, func() (discovery.Browser, error) {
+ 		return newLANBrowser(include, exclude)
+diff --git a/internal/config/config_load.go b/internal/config/config_load.go
+index baca01e..6364a49 100644
+--- a/internal/config/config_load.go
++++ b/internal/config/config_load.go
+@@ -164,6 +164,7 @@ func LoadConfigOptional(configFile string, optional bool) (*Config, error) {
+ 				cfg := &Config{CredentialInFlight: DefaultCredentialInFlightConfig()}
+ 				cfg.NormalizePluginsConfig()
+ 				cfg.NormalizeClaudeConfig()
++				cfg.ApplyPrivateBuild()
+ 				return cfg, nil
+ 			}
+ 		}
+@@ -175,6 +176,7 @@ func LoadConfigOptional(configFile string, optional bool) (*Config, error) {
+ 		cfg := &Config{CredentialInFlight: DefaultCredentialInFlightConfig()}
+ 		cfg.NormalizePluginsConfig()
+ 		cfg.NormalizeClaudeConfig()
++		cfg.ApplyPrivateBuild()
+ 		return cfg, nil
+ 	}
+ 
+@@ -183,6 +185,7 @@ func LoadConfigOptional(configFile string, optional bool) (*Config, error) {
+ 			cfgOptional := &Config{CredentialInFlight: DefaultCredentialInFlightConfig()}
+ 			cfgOptional.NormalizePluginsConfig()
+ 			cfgOptional.NormalizeClaudeConfig()
++			cfgOptional.ApplyPrivateBuild()
+ 			return cfgOptional, nil
+ 		}
+ 		return nil, errValidate
+@@ -215,6 +218,7 @@ func LoadConfigOptional(configFile string, optional bool) (*Config, error) {
+ 			cfgOptional := &Config{CredentialInFlight: DefaultCredentialInFlightConfig()}
+ 			cfgOptional.NormalizePluginsConfig()
+ 			cfgOptional.NormalizeClaudeConfig()
++			cfgOptional.ApplyPrivateBuild()
+ 			return cfgOptional, nil
+ 		}
+ 		return nil, fmt.Errorf("failed to parse config file: %w", err)
+@@ -355,5 +359,6 @@ func LoadConfigOptional(configFile string, optional bool) (*Config, error) {
+ 	cfg.SourceHash = ComputeSourceHash(data)
+ 
+ 	// Return the populated configuration struct.
++	cfg.ApplyPrivateBuild()
+ 	return &cfg, nil
+ }
+diff --git a/internal/config/parse.go b/internal/config/parse.go
+index c3442be..1c22dde 100644
+--- a/internal/config/parse.go
++++ b/internal/config/parse.go
+@@ -126,5 +126,6 @@ func ParseConfigBytes(data []byte) (*Config, error) {
+ 	cfg.SanitizeOAuthRequestScopedErrors()
+ 	cfg.SanitizePayloadRules()
+ 
++	cfg.ApplyPrivateBuild()
+ 	return &cfg, nil
+ }
+diff --git a/internal/config/private_build.go b/internal/config/private_build.go
+new file mode 100644
+index 0000000..3d6acba
+--- /dev/null
++++ b/internal/config/private_build.go
+@@ -0,0 +1,17 @@
++package config
++
++func (cfg *Config) ApplyPrivateBuild() {
++	if cfg == nil {
++		return
++	}
++	cfg.Host = "127.0.0.1"
++	cfg.Pprof.Enable = false
++	cfg.Home = HomeConfig{}
++	cfg.Models = ModelCatalogs{}
++	cfg.Plugins.Enabled = false
++	cfg.Discovery.Enabled = false
++	cfg.RemoteManagement.AllowRemote = false
++	cfg.RemoteManagement.DisableControlPanel = true
++	cfg.RemoteManagement.DisableAutoUpdatePanel = true
++	cfg.DisableClaudeCloakMode = true
++}
+diff --git a/internal/home/client.go b/internal/home/client.go
+index 30b7c5e..d9bcb56 100644
+--- a/internal/home/client.go
++++ b/internal/home/client.go
+@@ -7,6 +7,7 @@ import (
+ 	"encoding/json"
+ 	"errors"
+ 	"fmt"
++	"github.com/router-for-me/CLIProxyAPI/v8/internal/privatebuild"
+ 	"math/rand/v2"
+ 	"net"
+ 	"net/http"
+@@ -289,6 +290,9 @@ func (c *Client) EnableLegacyMembership() {
+ }
+ 
+ func (c *Client) Enabled() bool {
++	if privatebuild.Enabled {
++		return false
++	}
+ 	if c == nil {
+ 		return false
+ 	}
+@@ -503,6 +507,9 @@ func (c *Client) addrLocked() (string, bool) {
+ }
+ 
+ func (c *Client) ensureClients() error {
++	if privatebuild.Enabled {
++		return privatebuild.ErrDisabled
++	}
+ 	if c == nil {
+ 		return ErrDisabled
+ 	}
+diff --git a/internal/managementasset/private_build_test.go b/internal/managementasset/private_build_test.go
+new file mode 100644
+index 0000000..a0f72e1
+--- /dev/null
++++ b/internal/managementasset/private_build_test.go
+@@ -0,0 +1,51 @@
++package managementasset
++
++import (
++	"context"
++	"errors"
++	"net/http"
++	"os"
++	"path/filepath"
++	"sync/atomic"
++	"testing"
++
++	"github.com/router-for-me/CLIProxyAPI/v8/internal/privatebuild"
++)
++
++type privateAssetTransport struct{ calls atomic.Int32 }
++
++func (p *privateAssetTransport) RoundTrip(*http.Request) (*http.Response, error) {
++	p.calls.Add(1)
++	return nil, errors.New("unexpected management asset request")
++}
++
++func TestPrivateBuildPanelDownloadsAndFallbackAreDisabled(t *testing.T) {
++	transport := &privateAssetTransport{}
++	client := &http.Client{Transport: transport}
++	previous := http.DefaultTransport
++	http.DefaultTransport = transport
++	t.Cleanup(func() { http.DefaultTransport = previous })
++	ctx, cancel := context.WithCancel(context.Background())
++	defer cancel()
++	dir := t.TempDir()
++	StartAutoUpdater(ctx, filepath.Join(dir, "config.yaml"))
++	if EnsureLatestManagementHTML(ctx, dir, "", "https://github.com/example/panel") {
++		t.Fatal("management HTML installation was allowed")
++	}
++	localPath := filepath.Join(dir, "management.html")
++	if ensureFallbackManagementHTML(ctx, client, localPath) {
++		t.Fatal("fallback management HTML installation was allowed")
++	}
++	if _, _, err := fetchLatestAsset(ctx, client, "https://fixture.invalid/releases"); !errors.Is(err, privatebuild.ErrDisabled) {
++		t.Fatalf("latest asset lookup was not denied: %v", err)
++	}
++	if _, _, err := downloadAsset(ctx, client, "https://fixture.invalid/management.html"); !errors.Is(err, privatebuild.ErrDisabled) {
++		t.Fatalf("asset download was not denied: %v", err)
++	}
++	if _, err := os.Stat(localPath); !os.IsNotExist(err) {
++		t.Fatalf("disabled panel created a file: %v", err)
++	}
++	if calls := transport.calls.Load(); calls != 0 {
++		t.Fatalf("panel operations attempted %d HTTP requests", calls)
++	}
++}
+diff --git a/internal/managementasset/updater.go b/internal/managementasset/updater.go
+index 57aff6b..9931f79 100644
+--- a/internal/managementasset/updater.go
++++ b/internal/managementasset/updater.go
+@@ -7,6 +7,7 @@ import (
+ 	"encoding/json"
+ 	"errors"
+ 	"fmt"
++	"github.com/router-for-me/CLIProxyAPI/v8/internal/privatebuild"
+ 	"io"
+ 	"net/http"
+ 	"net/url"
+@@ -60,6 +61,9 @@ func SetCurrentConfig(cfg *config.Config) {
+ // StartAutoUpdater launches a background goroutine that periodically ensures the management asset is up to date.
+ // It respects the disable-control-panel flag on every iteration and supports hot-reloaded configurations.
+ func StartAutoUpdater(ctx context.Context, configFilePath string) {
++	if privatebuild.Enabled {
++		return
++	}
+ 	configFilePath = strings.TrimSpace(configFilePath)
+ 	if configFilePath == "" {
+ 		log.Debug("management asset auto-updater skipped: empty config path")
+@@ -190,6 +194,9 @@ func FilePath(configFilePath string) string {
+ // EnsureLatestManagementHTML checks the latest management.html asset and updates the local copy when needed.
+ // It coalesces concurrent sync attempts and returns whether the asset exists after the sync attempt.
+ func EnsureLatestManagementHTML(ctx context.Context, staticDir string, proxyURL string, panelRepository string) bool {
++	if privatebuild.Enabled {
++		return false
++	}
+ 	if ctx == nil {
+ 		ctx = context.Background()
+ 	}
+@@ -292,6 +299,9 @@ func EnsureLatestManagementHTML(ctx context.Context, staticDir string, proxyURL
+ }
+ 
+ func ensureFallbackManagementHTML(ctx context.Context, client *http.Client, localPath string) bool {
++	if privatebuild.Enabled {
++		return false
++	}
+ 	data, downloadedHash, err := downloadAsset(ctx, client, defaultManagementFallbackURL)
+ 	if err != nil {
+ 		log.WithError(err).Warn("failed to download fallback management control panel page")
+@@ -343,6 +353,9 @@ func resolveReleaseURL(repo string) string {
+ }
+ 
+ func fetchLatestAsset(ctx context.Context, client *http.Client, releaseURL string) (*releaseAsset, string, error) {
++	if privatebuild.Enabled {
++		return nil, "", privatebuild.ErrDisabled
++	}
+ 	if strings.TrimSpace(releaseURL) == "" {
+ 		releaseURL = defaultManagementReleaseURL
+ 	}
+@@ -377,6 +390,9 @@ func fetchLatestAsset(ctx context.Context, client *http.Client, releaseURL strin
+ }
+ 
+ func downloadAsset(ctx context.Context, client *http.Client, downloadURL string) ([]byte, string, error) {
++	if privatebuild.Enabled {
++		return nil, "", privatebuild.ErrDisabled
++	}
+ 	if strings.TrimSpace(downloadURL) == "" {
+ 		return nil, "", fmt.Errorf("empty download url")
+ 	}
+diff --git a/internal/misc/antigravity_version.go b/internal/misc/antigravity_version.go
+index 1e77c2d..4fa02fe 100644
+--- a/internal/misc/antigravity_version.go
++++ b/internal/misc/antigravity_version.go
+@@ -5,6 +5,7 @@ import (
+ 	"context"
+ 	"errors"
+ 	"fmt"
++	"github.com/router-for-me/CLIProxyAPI/v8/internal/privatebuild"
+ 	"io"
+ 	"net/http"
+ 	"strings"
+@@ -55,6 +56,9 @@ var (
+ // StartAntigravityVersionUpdater starts a background goroutine that periodically refreshes the cached antigravity version.
+ // This is intentionally decoupled from request execution to avoid blocking executors on version lookups.
+ func StartAntigravityVersionUpdater(ctx context.Context) {
++	if privatebuild.Enabled {
++		return
++	}
+ 	antigravityUpdaterOnce.Do(func() {
+ 		go runAntigravityVersionUpdater(ctx)
+ 	})
+@@ -213,6 +217,9 @@ func AntigravityVersionFromUserAgent(userAgent string) string {
+ }
+ 
+ func fetchAntigravityLatestVersion(ctx context.Context) (string, error) {
++	if privatebuild.Enabled {
++		return "", privatebuild.ErrDisabled
++	}
+ 	if ctx == nil {
+ 		ctx = context.Background()
+ 	}
+@@ -222,6 +229,9 @@ func fetchAntigravityLatestVersion(ctx context.Context) (string, error) {
+ }
+ 
+ func fetchAntigravityHubLatestManifestVersion(ctx context.Context, client *http.Client) (string, error) {
++	if privatebuild.Enabled {
++		return "", privatebuild.ErrDisabled
++	}
+ 	httpReq, errReq := http.NewRequestWithContext(ctx, http.MethodGet, antigravityHubLatestManifestURL, nil)
+ 	if errReq != nil {
+ 		return "", fmt.Errorf("build antigravity Hub updater manifest request: %w", errReq)
+diff --git a/internal/misc/private_build_test.go b/internal/misc/private_build_test.go
+new file mode 100644
+index 0000000..a075e3b
+--- /dev/null
++++ b/internal/misc/private_build_test.go
+@@ -0,0 +1,37 @@
++package misc
++
++import (
++	"context"
++	"errors"
++	"net/http"
++	"sync/atomic"
++	"testing"
++
++	"github.com/router-for-me/CLIProxyAPI/v8/internal/privatebuild"
++)
++
++type privateVersionTransport struct{ calls atomic.Int32 }
++
++func (p *privateVersionTransport) RoundTrip(*http.Request) (*http.Response, error) {
++	p.calls.Add(1)
++	return nil, errors.New("unexpected Antigravity version request")
++}
++
++func TestPrivateBuildAntigravityVersionPollingIsDisabled(t *testing.T) {
++	transport := &privateVersionTransport{}
++	previous := http.DefaultTransport
++	http.DefaultTransport = transport
++	t.Cleanup(func() { http.DefaultTransport = previous })
++	ctx, cancel := context.WithCancel(context.Background())
++	defer cancel()
++	StartAntigravityVersionUpdater(ctx)
++	if _, err := fetchAntigravityLatestVersion(ctx); !errors.Is(err, privatebuild.ErrDisabled) {
++		t.Fatalf("version lookup was not denied: %v", err)
++	}
++	if _, err := fetchAntigravityHubLatestManifestVersion(ctx, &http.Client{Transport: transport}); !errors.Is(err, privatebuild.ErrDisabled) {
++		t.Fatalf("manifest lookup was not denied: %v", err)
++	}
++	if calls := transport.calls.Load(); calls != 0 {
++		t.Fatalf("Antigravity lookups attempted %d HTTP requests", calls)
++	}
++}
+diff --git a/internal/pluginhost/host.go b/internal/pluginhost/host.go
+index f23854c..21ce927 100644
+--- a/internal/pluginhost/host.go
++++ b/internal/pluginhost/host.go
+@@ -5,6 +5,7 @@ import (
+ 	"context"
+ 	"errors"
+ 	"fmt"
++	"github.com/router-for-me/CLIProxyAPI/v8/internal/privatebuild"
+ 	"path/filepath"
+ 	"sort"
+ 	"strings"
+@@ -205,6 +206,9 @@ func (h *Host) PluginBusy(id string) bool {
+ }
+ 
+ func (h *Host) ApplyConfig(ctx context.Context, cfg *config.Config) {
++	if privatebuild.Enabled {
++		return
++	}
+ 	if h == nil || !h.lockApply(ctx) {
+ 		return
+ 	}
+@@ -1095,17 +1099,17 @@ func (h *Host) rollbackReplacement(lp *loadedPlugin, item runtimeItemConfig) (ca
+ 		return capabilityRecord{}, pluginFile{}, false
+ 	}
+ 	return capabilityRecord{
+-			id:       lp.id,
+-			path:     lp.path,
+-			version:  lp.version,
+-			priority: item.Priority,
+-			meta:     plugin.Metadata,
+-			plugin:   plugin,
+-		}, pluginFile{
+-			ID:      lp.id,
+-			Path:    lp.path,
+-			Version: lp.version,
+-		}, true
++		id:       lp.id,
++		path:     lp.path,
++		version:  lp.version,
++		priority: item.Priority,
++		meta:     plugin.Metadata,
++		plugin:   plugin,
++	}, pluginFile{
++		ID:      lp.id,
++		Path:    lp.path,
++		Version: lp.version,
++	}, true
+ }
+ 
+ func (h *Host) callRegister(ctx context.Context, lp *loadedPlugin, item runtimeItemConfig) (pluginapi.Plugin, bool) {
+diff --git a/internal/pluginhost/loader_unix.go b/internal/pluginhost/loader_unix.go
+index 636413a..2077d6a 100644
+--- a/internal/pluginhost/loader_unix.go
++++ b/internal/pluginhost/loader_unix.go
+@@ -81,6 +81,7 @@ import "C"
+ import (
+ 	"context"
+ 	"fmt"
++	"github.com/router-for-me/CLIProxyAPI/v8/internal/privatebuild"
+ 	"sync"
+ 	"sync/atomic"
+ 	"unsafe"
+@@ -109,6 +110,9 @@ func defaultPluginLoader() pluginLoader {
+ }
+ 
+ func (dynamicLibraryLoader) Open(file pluginFile, host *Host) (pluginClient, error) {
++	if privatebuild.Enabled {
++		return nil, privatebuild.ErrDisabled
++	}
+ 	loadPath, errShadow := shadowCopyPlugin(file)
+ 	if errShadow != nil {
+ 		return nil, errShadow
+diff --git a/internal/pluginhost/loader_windows.go b/internal/pluginhost/loader_windows.go
+index bfffeed..3b267f4 100644
+--- a/internal/pluginhost/loader_windows.go
++++ b/internal/pluginhost/loader_windows.go
+@@ -5,6 +5,7 @@ package pluginhost
+ import (
+ 	"context"
+ 	"fmt"
++	"github.com/router-for-me/CLIProxyAPI/v8/internal/privatebuild"
+ 	"runtime"
+ 	"sync"
+ 	"sync/atomic"
+@@ -71,6 +72,9 @@ func defaultPluginLoader() pluginLoader {
+ }
+ 
+ func (dynamicLibraryLoader) Open(file pluginFile, host *Host) (pluginClient, error) {
++	if privatebuild.Enabled {
++		return nil, privatebuild.ErrDisabled
++	}
+ 	loadPath, errShadow := shadowCopyPlugin(file)
+ 	if errShadow != nil {
+ 		return nil, errShadow
+diff --git a/internal/pluginhost/private_build_test.go b/internal/pluginhost/private_build_test.go
+new file mode 100644
+index 0000000..8f58286
+--- /dev/null
++++ b/internal/pluginhost/private_build_test.go
+@@ -0,0 +1,32 @@
++package pluginhost
++
++import (
++	"context"
++	"testing"
++
++	"github.com/router-for-me/CLIProxyAPI/v8/internal/config"
++)
++
++func TestPrivateBuildCannotLoadNativePluginsEvenWhenExplicitlyEnabled(t *testing.T) {
++	loader := newTestSymbolLoader()
++	plugin := &testPlugin{
++		registerResult:    validTestPlugin("alpha"),
++		reconfigureResult: validTestPlugin("alpha"),
++	}
++	loader.lookups["alpha"] = newTestSymbolLookup(plugin)
++	host := NewForTest(loader)
++	t.Cleanup(host.ShutdownAll)
++	cfg := &config.Config{Plugins: config.PluginsConfig{
++		Enabled: true,
++		Dir:     makePluginDir(t, "alpha"),
++		Configs: enabledPluginConfigs("alpha"),
++	}}
++	host.ApplyConfig(context.Background(), cfg)
++	host.ApplyConfig(context.Background(), cfg) // Reconfiguration cannot reopen the capability.
++	if loader.openCalls != 0 || host.PluginLoaded("alpha") || host.PluginRegistered("alpha") {
++		t.Fatalf("native plugin load escaped the private policy: open calls=%d", loader.openCalls)
++	}
++	if snapshot := host.Snapshot(); snapshot.enabled || len(snapshot.records) != 0 {
++		t.Fatalf("disabled plugin host reported live capabilities: %+v", snapshot)
++	}
++}
+diff --git a/internal/pluginstore/github.go b/internal/pluginstore/github.go
+index f056d94..c289a16 100644
+--- a/internal/pluginstore/github.go
++++ b/internal/pluginstore/github.go
+@@ -5,6 +5,7 @@ import (
+ 	"encoding/json"
+ 	"errors"
+ 	"fmt"
++	"github.com/router-for-me/CLIProxyAPI/v8/internal/privatebuild"
+ 	"io"
+ 	"net/http"
+ 	"net/url"
+@@ -151,6 +152,9 @@ func (c Client) releaseAssetAPIAuthenticated(apiURL string) bool {
+ }
+ 
+ func (c Client) get(ctx context.Context, requestURL string, accept string, kind string, maxSize int64) ([]byte, error) {
++	if privatebuild.Enabled {
++		return nil, privatebuild.ErrDisabled
++	}
+ 	currentURL := strings.TrimSpace(requestURL)
+ 	limiter := c.githubRateLimiter()
+ 	for redirects := 0; ; redirects++ {
+diff --git a/internal/pluginstore/install.go b/internal/pluginstore/install.go
+index 2b17ecd..a78a83a 100644
+--- a/internal/pluginstore/install.go
++++ b/internal/pluginstore/install.go
+@@ -6,6 +6,7 @@ import (
+ 	"context"
+ 	"errors"
+ 	"fmt"
++	"github.com/router-for-me/CLIProxyAPI/v8/internal/privatebuild"
+ 	"io"
+ 	"os"
+ 	"path"
+@@ -241,6 +242,9 @@ func directPluginVersion(plugin Plugin, id string, version string) (Plugin, erro
+ }
+ 
+ func InstallArchive(archiveData []byte, plugin Plugin, options InstallOptions) (InstallResult, error) {
++	if privatebuild.Enabled {
++		return InstallResult{}, privatebuild.ErrDisabled
++	}
+ 	options = normalizeInstallOptions(options)
+ 	id := strings.TrimSpace(plugin.ID)
+ 	if !validPluginID(id) {
+diff --git a/internal/privatebuild/policy.go b/internal/privatebuild/policy.go
+new file mode 100644
+index 0000000..5d95072
+--- /dev/null
++++ b/internal/privatebuild/policy.go
+@@ -0,0 +1,8 @@
++package privatebuild
++
++import "errors"
++
++const Enabled = true
++const Revision = 1
++
++var ErrDisabled = errors.New("disabled in the private provider-only build")
+diff --git a/internal/privatebuild/policy_test.go b/internal/privatebuild/policy_test.go
+new file mode 100644
+index 0000000..4c8bbb7
+--- /dev/null
++++ b/internal/privatebuild/policy_test.go
+@@ -0,0 +1,187 @@
++package privatebuild_test
++
++import (
++	"context"
++	"errors"
++	"net/http"
++	"net/http/httptest"
++	"os"
++	"path/filepath"
++	"reflect"
++	"strings"
++	"sync/atomic"
++	"testing"
++
++	"github.com/gin-gonic/gin"
++	"github.com/router-for-me/CLIProxyAPI/v8/internal/api/handlers/management"
++	"github.com/router-for-me/CLIProxyAPI/v8/internal/config"
++	"github.com/router-for-me/CLIProxyAPI/v8/internal/home"
++	"github.com/router-for-me/CLIProxyAPI/v8/internal/pluginstore"
++	"github.com/router-for-me/CLIProxyAPI/v8/internal/privatebuild"
++	"github.com/router-for-me/CLIProxyAPI/v8/internal/store"
++)
++
++type deniedTransport struct{ calls atomic.Int32 }
++
++func (d *deniedTransport) RoundTrip(*http.Request) (*http.Response, error) {
++	d.calls.Add(1)
++	return nil, errors.New("unexpected network request")
++}
++
++func assertPrivateConfig(t *testing.T, cfg *config.Config) {
++	t.Helper()
++	if cfg.Host != "127.0.0.1" || !reflect.DeepEqual(cfg.Home, config.HomeConfig{}) || cfg.Plugins.Enabled || cfg.Discovery.Enabled ||
++		cfg.RemoteManagement.AllowRemote || !cfg.RemoteManagement.DisableControlPanel ||
++		!cfg.RemoteManagement.DisableAutoUpdatePanel || !cfg.DisableClaudeCloakMode ||
++		!reflect.DeepEqual(cfg.Models, config.ModelCatalogs{}) {
++		t.Fatalf("effective configuration escaped private policy: host=%q home=%v plugins=%v discovery=%v remote=%+v cloakDisabled=%v models=%+v",
++			cfg.Host, cfg.Home.Enabled, cfg.Plugins.Enabled, cfg.Discovery.Enabled, cfg.RemoteManagement, cfg.DisableClaudeCloakMode, cfg.Models)
++	}
++}
++
++func TestPrivateBuildConfigCannotEnableAuxiliaryFeatures(t *testing.T) {
++	data := []byte(`host: 0.0.0.0
++port: 8317
++home:
++  enabled: true
++  host: remote.invalid
++  port: 6379
++plugins:
++  enabled: true
++discovery:
++  enabled: true
++remote-management:
++  allow-remote: true
++  disable-control-panel: false
++  disable-auto-update-panel: false
++disable-claude-cloak-mode: false
++models:
++  catalog: https://remote.invalid/models.json
++  codex-catalog: https://remote.invalid/codex.json
++  devin-catalog: https://remote.invalid/devin.json
++openai-compatibility:
++  - name: local-fixture
++    base-url: http://127.0.0.1:12345/v1
++    api-key-entries:
++      - api-key: fixture-only-key
++    models:
++      - name: fixture-model
++`)
++	cfg, err := config.ParseConfigBytes(data)
++	if err != nil {
++		t.Fatal(err)
++	}
++	assertPrivateConfig(t, cfg)
++	if len(cfg.OpenAICompatibility) != 1 || cfg.OpenAICompatibility[0].BaseURL != "http://127.0.0.1:12345/v1" {
++		t.Fatal("provider configuration was lost while disabling auxiliary features")
++	}
++	// Home is populated programmatically after JWT processing, outside YAML parsing.
++	cfg.Home = config.HomeConfig{Enabled: true, Host: "remote.invalid", Port: 6379}
++	cfg.ApplyPrivateBuild()
++	assertPrivateConfig(t, cfg)
++	path := filepath.Join(t.TempDir(), "config.yaml")
++	if err := os.WriteFile(path, data, 0600); err != nil {
++		t.Fatal(err)
++	}
++	loaded, err := config.LoadConfig(path)
++	if err != nil {
++		t.Fatal(err)
++	}
++	assertPrivateConfig(t, loaded)
++}
++
++func TestPrivateBuildOptionalConfigFallbacksKeepPolicy(t *testing.T) {
++	for _, content := range []string{"missing", "", "   \n", "invalid: ["} {
++		t.Run(content, func(t *testing.T) {
++			path := filepath.Join(t.TempDir(), "config.yaml")
++			if content != "missing" {
++				if err := os.WriteFile(path, []byte(content), 0600); err != nil {
++					t.Fatal(err)
++				}
++			}
++			cfg, err := config.LoadConfigOptional(path, true)
++			if err != nil {
++				t.Fatal(err)
++			}
++			assertPrivateConfig(t, cfg)
++		})
++	}
++}
++
++func TestPrivateBuildPluginDownloadsAndArchiveInstallAreDenied(t *testing.T) {
++	transport := &deniedTransport{}
++	client := pluginstore.Client{HTTPClient: &http.Client{Transport: transport}, RegistryURL: "https://fixture.invalid/registry.json"}
++	ctx := context.Background()
++	plugin := pluginstore.Plugin{Repository: "https://github.com/example/plugin"}
++	checks := []struct {
++		name string
++		call func() error
++	}{
++		{"registry", func() error { _, err := client.FetchRegistry(ctx); return err }},
++		{"latest release", func() error { _, err := client.FetchLatestRelease(ctx, plugin); return err }},
++		{"release by tag", func() error { _, err := client.FetchReleaseByTag(ctx, plugin, "v1.0.0"); return err }},
++		{"archive", func() error {
++			_, err := pluginstore.InstallArchive(nil, plugin, pluginstore.InstallOptions{})
++			return err
++		}},
++	}
++	for _, check := range checks {
++		t.Run(check.name, func(t *testing.T) {
++			if err := check.call(); !errors.Is(err, privatebuild.ErrDisabled) {
++				t.Fatalf("expected private-policy denial, got %v", err)
++			}
++		})
++	}
++	if calls := transport.calls.Load(); calls != 0 {
++		t.Fatalf("plugin operations attempted %d HTTP requests", calls)
++	}
++}
++
++func TestPrivateBuildManagementEndpointsCannotTriggerDownloads(t *testing.T) {
++	transport := &deniedTransport{}
++	previous := http.DefaultTransport
++	http.DefaultTransport = transport
++	t.Cleanup(func() { http.DefaultTransport = previous })
++	handler := &management.Handler{}
++	for _, endpoint := range []struct {
++		name string
++		call func(*gin.Context)
++	}{
++		{"latest-version", handler.GetLatestVersion},
++		{"plugin-store", handler.ListPluginStore},
++		{"plugin-install", handler.InstallPluginFromStore},
++	} {
++		t.Run(endpoint.name, func(t *testing.T) {
++			recorder := httptest.NewRecorder()
++			ctx, _ := gin.CreateTestContext(recorder)
++			ctx.Request = httptest.NewRequest(http.MethodPost, "/"+endpoint.name, strings.NewReader(`{"url":"https://fixture.invalid/payload"}`))
++			endpoint.call(ctx)
++			if recorder.Code != http.StatusForbidden || !strings.Contains(recorder.Body.String(), "disabled in the private") {
++				t.Fatalf("expected explicit private-policy denial, got %d %s", recorder.Code, recorder.Body.String())
++			}
++		})
++	}
++	if calls := transport.calls.Load(); calls != 0 {
++		t.Fatalf("management endpoints attempted %d HTTP requests", calls)
++	}
++}
++
++func TestPrivateBuildRemoteCredentialStoresCannotInitialize(t *testing.T) {
++	ctx := context.Background()
++	postgres, err := store.NewPostgresStore(ctx, store.PostgresStoreConfig{DSN: "postgres://fixture:fixture@127.0.0.1:1/fixture?connect_timeout=1"})
++	if postgres != nil || !errors.Is(err, privatebuild.ErrDisabled) {
++		t.Fatalf("postgres store was not refused before connection: store=%v error=%v", postgres, err)
++	}
++	object, err := store.NewObjectTokenStore(store.ObjectStoreConfig{Endpoint: "127.0.0.1:1", Bucket: "fixture", AccessKey: "fixture", SecretKey: "fixture"})
++	if object != nil || !errors.Is(err, privatebuild.ErrDisabled) {
++		t.Fatalf("object store was not refused before connection: store=%v error=%v", object, err)
++	}
++	client := home.New(config.HomeConfig{Enabled: true, Host: "127.0.0.1", Port: 1})
++	defer client.Close()
++	if client.Enabled() {
++		t.Fatal("Home telemetry/remote credential client became enabled")
++	}
++	if err := client.Ping(ctx); !errors.Is(err, privatebuild.ErrDisabled) {
++		t.Fatalf("Home connection was not refused before dialing: %v", err)
++	}
++}
+diff --git a/internal/registry/catalog_sources.go b/internal/registry/catalog_sources.go
+index f89a153..e70f206 100644
+--- a/internal/registry/catalog_sources.go
++++ b/internal/registry/catalog_sources.go
+@@ -31,6 +31,7 @@ type catalogUpdater struct {
+ }
+ 
+ func (u *catalogUpdater) configure(ctx context.Context, source string) {
++	source = embeddedCatalogSource
+ 	u.mu.Lock()
+ 	defer u.mu.Unlock()
+ 	if u.cancel != nil && u.source == source && u.parentDone == ctx.Done() && u.ctx.Err() == nil {
+@@ -90,6 +91,9 @@ func (u *catalogUpdater) refresh(ctx context.Context, source string, generation
+ }
+ 
+ func readCatalogSource(ctx context.Context, source string) ([]byte, error) {
++	if !filepath.IsAbs(source) {
++		return nil, fmt.Errorf("remote catalogs are disabled in the private build")
++	}
+ 	var reader io.ReadCloser
+ 	if filepath.IsAbs(source) {
+ 		file, errOpen := os.Open(source)
+diff --git a/internal/registry/models/models.json b/internal/registry/models/models.json
+index 3164935..d2beccd 100644
+--- a/internal/registry/models/models.json
++++ b/internal/registry/models/models.json
+@@ -2908,6 +2908,37 @@
+       },
+       "support_configuration_update": true
+     },
++    {
++      "id": "gpt-6.1-terra",
++      "object": "model",
++      "created": 1792972800,
++      "owned_by": "openai",
++      "type": "openai",
++      "display_name": "GPT 6.1 Terra",
++      "version": "gpt-6.0",
++      "description": "A fast, efficient model for visual reasoning, precise computer use, and clear, natural writing.",
++      "context_length": 500000,
++      "max_completion_tokens": 128000,
++      "supported_parameters": [
++        "tools"
++      ],
++      "supportedInputModalities": [
++        "text",
++        "image"
++      ],
++      "supportedOutputModalities": [
++        "text"
++      ],
++      "thinking": {
++        "levels": [
++          "low",
++          "medium",
++          "high",
++          "xhigh",
++          "max"
++        ]
++      }
++    },
+     {
+       "id": "gpt-6-luna",
+       "object": "model",
+@@ -3224,6 +3255,37 @@
+       },
+       "support_configuration_update": true
+     },
++    {
++      "id": "gpt-6.1-terra",
++      "object": "model",
++      "created": 1792972800,
++      "owned_by": "openai",
++      "type": "openai",
++      "display_name": "GPT 6.1 Terra",
++      "version": "gpt-6.0",
++      "description": "A fast, efficient model for visual reasoning, precise computer use, and clear, natural writing.",
++      "context_length": 500000,
++      "max_completion_tokens": 128000,
++      "supported_parameters": [
++        "tools"
++      ],
++      "supportedInputModalities": [
++        "text",
++        "image"
++      ],
++      "supportedOutputModalities": [
++        "text"
++      ],
++      "thinking": {
++        "levels": [
++          "low",
++          "medium",
++          "high",
++          "xhigh",
++          "max"
++        ]
++      }
++    },
+     {
+       "id": "gpt-6-luna",
+       "object": "model",
+@@ -3540,6 +3602,37 @@
+       },
+       "support_configuration_update": true
+     },
++    {
++      "id": "gpt-6.1-terra",
++      "object": "model",
++      "created": 1792972800,
++      "owned_by": "openai",
++      "type": "openai",
++      "display_name": "GPT 6.1 Terra",
++      "version": "gpt-6.0",
++      "description": "A fast, efficient model for visual reasoning, precise computer use, and clear, natural writing.",
++      "context_length": 500000,
++      "max_completion_tokens": 128000,
++      "supported_parameters": [
++        "tools"
++      ],
++      "supportedInputModalities": [
++        "text",
++        "image"
++      ],
++      "supportedOutputModalities": [
++        "text"
++      ],
++      "thinking": {
++        "levels": [
++          "low",
++          "medium",
++          "high",
++          "xhigh",
++          "max"
++        ]
++      }
++    },
+     {
+       "id": "gpt-6-luna",
+       "object": "model",
+diff --git a/internal/registry/private_build_test.go b/internal/registry/private_build_test.go
+new file mode 100644
+index 0000000..81a60f9
+--- /dev/null
++++ b/internal/registry/private_build_test.go
+@@ -0,0 +1,104 @@
++package registry
++
++import (
++	"bytes"
++	"context"
++	"errors"
++	"net/http"
++	"slices"
++	"sync/atomic"
++	"testing"
++	"time"
++)
++
++type privateCatalogTransport struct{ calls atomic.Int32 }
++
++func TestPrivateBuildPreservesMigratedTerraModel(t *testing.T) {
++	for _, tier := range []struct {
++		name   string
++		models func() []*ModelInfo
++	}{
++		{"team", GetCodexTeamModels},
++		{"plus", GetCodexPlusModels},
++		{"pro", GetCodexProModels},
++	} {
++		t.Run(tier.name, func(t *testing.T) {
++			var model *ModelInfo
++			for _, candidate := range tier.models() {
++				if candidate.ID == "gpt-6.1-terra" {
++					model = candidate
++					break
++				}
++			}
++			if model == nil {
++				t.Fatal("migrated model is unavailable without a remote catalog")
++			}
++			if model.ContextLength != 500000 || model.MaxCompletionTokens != 128000 {
++				t.Fatal("migrated model token limits changed")
++			}
++			if model.Thinking == nil || !slices.Equal(model.Thinking.Levels, []string{"low", "medium", "high", "xhigh", "max"}) {
++				t.Fatal("migrated model reasoning levels changed")
++			}
++			if !slices.Equal(model.SupportedInputModalities, []string{"text", "image"}) {
++				t.Fatal("migrated model input modalities changed")
++			}
++		})
++	}
++}
++
++func (p *privateCatalogTransport) RoundTrip(*http.Request) (*http.Response, error) {
++	p.calls.Add(1)
++	return nil, errors.New("unexpected catalog network request")
++}
++
++func TestPrivateBuildCatalogRefreshAlwaysUsesEmbeddedData(t *testing.T) {
++	transport := &privateCatalogTransport{}
++	previous := http.DefaultTransport
++	http.DefaultTransport = transport
++	t.Cleanup(func() { http.DefaultTransport = previous })
++	ctx, cancel := context.WithCancel(context.Background())
++	defer cancel()
++	for _, catalog := range []struct {
++		name     string
++		data     []byte
++		validate func([]byte) error
++	}{
++		{"general", embeddedModelsJSON, validateCatalogBytes},
++		{"codex", embeddedCodexClientModelsJSON, ValidateCodexClientModelsJSON},
++		{"devin", embeddedDevinModelsJSON, validateDevinCatalogBytes},
++	} {
++		t.Run(catalog.name, func(t *testing.T) {
++			published := make(chan []byte, 1)
++			updater := &catalogUpdater{
++				fetch:   catalogFetcher(catalog.data, []string{"https://fallback.invalid/catalog.json"}, catalog.validate),
++				publish: func(data []byte) ([]string, error) { published <- data; return nil, nil },
++			}
++			updater.configure(ctx, "https://override.invalid/catalog.json")
++			select {
++			case data := <-published:
++				if !bytes.Equal(data, catalog.data) {
++					t.Fatal("catalog contained an external override")
++				}
++			case <-time.After(2 * time.Second):
++				t.Fatal("embedded catalog was not published")
++			}
++			updater.mu.Lock()
++			generation := updater.generation
++			updater.mu.Unlock()
++			updater.configure(ctx, "https://reload.invalid/catalog.json")
++			updater.mu.Lock()
++			defer updater.mu.Unlock()
++			if updater.source != embeddedCatalogSource || updater.generation != generation {
++				t.Fatal("configuration reload replaced or restarted the embedded catalog")
++			}
++		})
++	}
++	for _, source := range []string{"https://direct.invalid/catalog.json", "http://127.0.0.1:1/catalog.json"} {
++		if _, err := readCatalogSource(ctx, source); err == nil {
++			t.Fatalf("direct remote catalog read accepted %s", source)
++		}
++	}
++	if calls := transport.calls.Load(); calls != 0 {
++		t.Fatalf("catalog operations attempted %d HTTP requests", calls)
++	}
++}
+diff --git a/internal/runtime/executor/claude_executor_cloaking.go b/internal/runtime/executor/claude_executor_cloaking.go
+index 57804fc..c733a03 100644
+--- a/internal/runtime/executor/claude_executor_cloaking.go
++++ b/internal/runtime/executor/claude_executor_cloaking.go
+@@ -1714,6 +1714,9 @@ func resolveClaudeWirePolicy(cfg *config.Config, auth *cliproxyauth.Auth, apiKey
+ 		}
+ 	}
+ 
++	cloakMode = "never"
++	explicitMode = "never"
++	settings = claudeCloakSettings{}
+ 	fp := resolveClaudeFingerprintPolicy(cfg, auth, apiKey)
+ 	cloakConfigured := cloakCfg != nil || attrMode != "" || attrStrict || len(attrWords) > 0 || attrCache
+ 	trimmedMode := strings.ToLower(strings.TrimSpace(cloakMode))
+diff --git a/internal/runtime/executor/helps/private_build_test.go b/internal/runtime/executor/helps/private_build_test.go
+new file mode 100644
+index 0000000..53576c3
+--- /dev/null
++++ b/internal/runtime/executor/helps/private_build_test.go
+@@ -0,0 +1,34 @@
++package helps
++
++import (
++	"context"
++	"errors"
++	"net/http"
++	"sync/atomic"
++	"testing"
++
++	"github.com/router-for-me/CLIProxyAPI/v8/internal/privatebuild"
++)
++
++type privateXAITransport struct{ calls atomic.Int32 }
++
++func (p *privateXAITransport) RoundTrip(*http.Request) (*http.Response, error) {
++	p.calls.Add(1)
++	return nil, errors.New("unexpected xAI npm request")
++}
++
++func TestPrivateBuildXAIVersionPollingIsDisabled(t *testing.T) {
++	transport := &privateXAITransport{}
++	previous := http.DefaultTransport
++	http.DefaultTransport = transport
++	t.Cleanup(func() { http.DefaultTransport = previous })
++	ctx, cancel := context.WithCancel(context.Background())
++	defer cancel()
++	StartXAIVersionUpdater(ctx, "")
++	if _, err := FetchXAINPMLatestVersion(ctx, &http.Client{Transport: transport}); !errors.Is(err, privatebuild.ErrDisabled) {
++		t.Fatalf("npm version lookup was not denied: %v", err)
++	}
++	if calls := transport.calls.Load(); calls != 0 {
++		t.Fatalf("xAI version lookups attempted %d HTTP requests", calls)
++	}
++}
+diff --git a/internal/runtime/executor/helps/xai_version.go b/internal/runtime/executor/helps/xai_version.go
+index f6d1e83..cf93125 100644
+--- a/internal/runtime/executor/helps/xai_version.go
++++ b/internal/runtime/executor/helps/xai_version.go
+@@ -4,6 +4,7 @@ import (
+ 	"context"
+ 	"errors"
+ 	"fmt"
++	"github.com/router-for-me/CLIProxyAPI/v8/internal/privatebuild"
+ 	"io"
+ 	"net/http"
+ 	"strconv"
+@@ -54,6 +55,9 @@ func GetXAIClientVersion() string {
+ // A later call cancels the previous goroutine and binds the new service context and proxy URL.
+ // It executes a single fetch on startup and then polls every 3 hours without multiple retries on failure.
+ func StartXAIVersionUpdater(ctx context.Context, proxyURL string) {
++	if privatebuild.Enabled {
++		return
++	}
+ 	if ctx == nil {
+ 		ctx = context.Background()
+ 	}
+@@ -112,6 +116,9 @@ func refreshXAIClientVersion(ctx context.Context) {
+ // FetchXAINPMLatestVersion performs a single request to the npm registry to query the latest version of @xai-official/grok.
+ // The returned version is a strict numeric semver at or above XAIClientVersionServerFloor.
+ func FetchXAINPMLatestVersion(ctx context.Context, client *http.Client) (string, error) {
++	if privatebuild.Enabled {
++		return "", privatebuild.ErrDisabled
++	}
+ 	if ctx == nil {
+ 		ctx = context.Background()
+ 	}
+diff --git a/internal/store/gitstore.go b/internal/store/gitstore.go
+index c3c044b..74a4286 100644
+--- a/internal/store/gitstore.go
++++ b/internal/store/gitstore.go
+@@ -5,6 +5,7 @@ import (
+ 	"encoding/json"
+ 	"errors"
+ 	"fmt"
++	"github.com/router-for-me/CLIProxyAPI/v8/internal/privatebuild"
+ 	"io/fs"
+ 	"os"
+ 	"path/filepath"
+@@ -122,6 +123,9 @@ func (s *GitTokenStore) ensureRepositoryLocked() error {
+ }
+ 
+ func (s *GitTokenStore) ensureRepositoryContextLocked(ctx context.Context) (errResult error) {
++	if privatebuild.Enabled {
++		return privatebuild.ErrDisabled
++	}
+ 	if ctx == nil {
+ 		ctx = context.Background()
+ 	}
+@@ -1893,6 +1897,9 @@ func restoreHeadAndIndex(repo *git.Repository, worktree *git.Worktree, head *plu
+ }
+ 
+ func (s *GitTokenStore) pushRepositoryLocked(ctx context.Context, repo *git.Repository, repoDir string, allowMissingRemote bool) error {
++	if privatebuild.Enabled {
++		return privatebuild.ErrDisabled
++	}
+ 	if ctx == nil {
+ 		ctx = context.Background()
+ 	}
+diff --git a/internal/store/objectstore.go b/internal/store/objectstore.go
+index 39b8b08..5470f06 100644
+--- a/internal/store/objectstore.go
++++ b/internal/store/objectstore.go
+@@ -6,6 +6,7 @@ import (
+ 	"encoding/json"
+ 	"errors"
+ 	"fmt"
++	"github.com/router-for-me/CLIProxyAPI/v8/internal/privatebuild"
+ 	"io"
+ 	"io/fs"
+ 	"net/http"
+@@ -55,6 +56,9 @@ type ObjectTokenStore struct {
+ 
+ // NewObjectTokenStore initializes an object storage backed token store.
+ func NewObjectTokenStore(cfg ObjectStoreConfig) (*ObjectTokenStore, error) {
++	if privatebuild.Enabled {
++		return nil, privatebuild.ErrDisabled
++	}
+ 	cfg.Endpoint = strings.TrimSpace(cfg.Endpoint)
+ 	cfg.Bucket = strings.TrimSpace(cfg.Bucket)
+ 	cfg.AccessKey = strings.TrimSpace(cfg.AccessKey)
+diff --git a/internal/store/postgresstore.go b/internal/store/postgresstore.go
+index 69bc318..87cd50d 100644
+--- a/internal/store/postgresstore.go
++++ b/internal/store/postgresstore.go
+@@ -6,6 +6,7 @@ import (
+ 	"encoding/json"
+ 	"errors"
+ 	"fmt"
++	"github.com/router-for-me/CLIProxyAPI/v8/internal/privatebuild"
+ 	"io/fs"
+ 	"os"
+ 	"path/filepath"
+@@ -52,6 +53,9 @@ type PostgresStore struct {
+ 
+ // NewPostgresStore establishes a connection to PostgreSQL and prepares the local workspace.
+ func NewPostgresStore(ctx context.Context, cfg PostgresStoreConfig) (*PostgresStore, error) {
++	if privatebuild.Enabled {
++		return nil, privatebuild.ErrDisabled
++	}
+ 	trimmedDSN := strings.TrimSpace(cfg.DSN)
+ 	if trimmedDSN == "" {
+ 		return nil, fmt.Errorf("postgres store: DSN is required")
+diff --git a/internal/store/private_build_test.go b/internal/store/private_build_test.go
+new file mode 100644
+index 0000000..717ff75
+--- /dev/null
++++ b/internal/store/private_build_test.go
+@@ -0,0 +1,19 @@
++package store
++
++import (
++	"context"
++	"errors"
++	"testing"
++
++	"github.com/router-for-me/CLIProxyAPI/v8/internal/privatebuild"
++)
++
++func TestPrivateBuildGitCredentialSyncIsDisabled(t *testing.T) {
++	store := NewGitTokenStore("https://fixture.invalid/credentials.git", "fixture", "fixture", "main")
++	if err := store.ensureRepositoryContextLocked(context.Background()); !errors.Is(err, privatebuild.ErrDisabled) {
++		t.Fatalf("git credential fetch was not denied: %v", err)
++	}
++	if err := store.pushRepositoryLocked(context.Background(), nil, t.TempDir(), false); !errors.Is(err, privatebuild.ErrDisabled) {
++		t.Fatalf("git credential push was not denied: %v", err)
++	}
++}
+diff --git a/internal/util/private_build_test.go b/internal/util/private_build_test.go
+new file mode 100644
+index 0000000..3f07c38
+--- /dev/null
++++ b/internal/util/private_build_test.go
+@@ -0,0 +1,33 @@
++package util
++
++import (
++	"errors"
++	"net/http"
++	"sync/atomic"
++	"testing"
++
++	"github.com/router-for-me/CLIProxyAPI/v8/internal/privatebuild"
++)
++
++type privateIPTransport struct{ calls atomic.Int32 }
++
++func (p *privateIPTransport) RoundTrip(*http.Request) (*http.Response, error) {
++	p.calls.Add(1)
++	return nil, errors.New("unexpected public IP lookup")
++}
++
++func TestPrivateBuildPublicIPDiscoveryIsDisabled(t *testing.T) {
++	transport := &privateIPTransport{}
++	previous := http.DefaultTransport
++	http.DefaultTransport = transport
++	t.Cleanup(func() { http.DefaultTransport = previous })
++	if _, err := getPublicIP(); !errors.Is(err, privatebuild.ErrDisabled) {
++		t.Fatalf("external public IP lookup was not denied: %v", err)
++	}
++	if ip, err := getOutboundIP(); err != nil || ip != "127.0.0.1" {
++		t.Fatalf("outbound IP discovery did not return loopback: %q, %v", ip, err)
++	}
++	if calls := transport.calls.Load(); calls != 0 {
++		t.Fatalf("public IP lookup attempted %d HTTP requests", calls)
++	}
++}
+diff --git a/internal/util/ssh_helper.go b/internal/util/ssh_helper.go
+index 2f81fcb..905b767 100644
+--- a/internal/util/ssh_helper.go
++++ b/internal/util/ssh_helper.go
+@@ -6,6 +6,7 @@ package util
+ import (
+ 	"context"
+ 	"fmt"
++	"github.com/router-for-me/CLIProxyAPI/v8/internal/privatebuild"
+ 	"io"
+ 	"net"
+ 	"net/http"
+@@ -29,6 +30,9 @@ var ipServices = []string{
+ //   - string: The public IP address as a string
+ //   - error: An error if all services fail, nil otherwise
+ func getPublicIP() (string, error) {
++	if privatebuild.Enabled {
++		return "", privatebuild.ErrDisabled
++	}
+ 	for _, service := range ipServices {
+ 		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+ 		defer cancel()
+@@ -72,6 +76,9 @@ func getPublicIP() (string, error) {
+ //   - string: The outbound IP address as a string
+ //   - error: An error if the IP address cannot be determined, nil otherwise
+ func getOutboundIP() (string, error) {
++	if privatebuild.Enabled {
++		return "127.0.0.1", nil
++	}
+ 	conn, err := net.Dial("udp", "8.8.8.8:80")
+ 	if err != nil {
+ 		return "", err
+diff --git a/sdk/api/handlers/header_filter.go b/sdk/api/handlers/header_filter.go
+index e724674..0f675fd 100644
+--- a/sdk/api/handlers/header_filter.go
++++ b/sdk/api/handlers/header_filter.go
+@@ -5,18 +5,6 @@ import (
+ 	"strings"
+ )
+ 
+-// gatewayHeaderPrefixes lists header name prefixes injected by known AI gateway
+-// proxies. Claude Code's client-side telemetry detects these and reports the
+-// gateway type, so we strip them from upstream responses to avoid detection.
+-var gatewayHeaderPrefixes = []string{
+-	"x-litellm-",
+-	"helicone-",
+-	"x-portkey-",
+-	"cf-aig-",
+-	"x-kong-",
+-	"x-bt-",
+-}
+-
+ // hopByHopHeaders lists RFC 7230 Section 6.1 hop-by-hop headers that MUST NOT
+ // be forwarded by proxies, plus security-sensitive headers that should not leak.
+ var hopByHopHeaders = map[string]struct{}{
+@@ -71,19 +59,6 @@ func FilterUpstreamHeaders(src http.Header) http.Header {
+ 		if _, scoped := connectionScoped[canonicalKey]; scoped {
+ 			continue
+ 		}
+-		// Strip headers injected by known AI gateway proxies to avoid
+-		// Claude Code client-side gateway detection.
+-		lowerKey := strings.ToLower(key)
+-		gatewayMatch := false
+-		for _, prefix := range gatewayHeaderPrefixes {
+-			if strings.HasPrefix(lowerKey, prefix) {
+-				gatewayMatch = true
+-				break
+-			}
+-		}
+-		if gatewayMatch {
+-			continue
+-		}
+ 		dst[key] = values
+ 	}
+ 	if len(dst) == 0 {
+diff --git a/sdk/cliproxy/builder.go b/sdk/cliproxy/builder.go
+index 532bde1..60a5c09 100644
+--- a/sdk/cliproxy/builder.go
++++ b/sdk/cliproxy/builder.go
+@@ -197,6 +197,7 @@ func (b *Builder) WithResultPolicy(policy coreauth.ResultPolicy) *Builder {
+ 
+ // Build validates inputs, applies defaults, and returns a ready-to-run service.
+ func (b *Builder) Build() (*Service, error) {
++	b.cfg.ApplyPrivateBuild()
+ 	if b.cfg == nil {
+ 		return nil, fmt.Errorf("cliproxy: configuration is required")
+ 	}
+diff --git a/sdk/cliproxy/discovery_advertiser.go b/sdk/cliproxy/discovery_advertiser.go
+index 8e1b5ec..105a55a 100644
+--- a/sdk/cliproxy/discovery_advertiser.go
++++ b/sdk/cliproxy/discovery_advertiser.go
+@@ -3,6 +3,7 @@ package cliproxy
+ import (
+ 	"context"
+ 	"fmt"
++	"github.com/router-for-me/CLIProxyAPI/v8/internal/privatebuild"
+ 	"sync"
+ 	"time"
+ 
+@@ -84,6 +85,9 @@ func (s *Service) applyDiscoveryConfig(cfg *config.Config) {
+ }
+ 
+ func (s *Service) applyDiscoveryConfigContext(ctx context.Context, cfg *config.Config) bool {
++	if privatebuild.Enabled {
++		return false
++	}
+ 	if s == nil || cfg == nil || (ctx != nil && ctx.Err() != nil) {
+ 		return false
+ 	}
+diff --git a/sdk/cliproxy/private_build_test.go b/sdk/cliproxy/private_build_test.go
+new file mode 100644
+index 0000000..d7b30c4
+--- /dev/null
++++ b/sdk/cliproxy/private_build_test.go
+@@ -0,0 +1,29 @@
++package cliproxy
++
++import (
++	"context"
++	"testing"
++
++	"github.com/router-for-me/CLIProxyAPI/v8/internal/config"
++	"github.com/router-for-me/CLIProxyAPI/v8/internal/discovery"
++)
++
++func TestPrivateBuildCannotStartMDNSFromServiceOrReload(t *testing.T) {
++	created := 0
++	manager := newDiscoveryAdvertiserManager()
++	manager.newAdvertiser = func() discovery.Advertiser {
++		created++
++		return &fakeAdvertiser{}
++	}
++	service := &Service{discoveryManager: manager}
++	cfg := &config.Config{Host: "127.0.0.1", Port: 8317}
++	cfg.Discovery.Enabled = true
++	for attempt := 0; attempt < 2; attempt++ {
++		if service.applyDiscoveryConfigContext(context.Background(), cfg) {
++			t.Fatal("discovery became active in the private build")
++		}
++	}
++	if created != 0 || manager.enabled || manager.refresh != nil {
++		t.Fatalf("service created discovery network machinery: advertisers=%d enabled=%v", created, manager.enabled)
++	}
++}
+diff --git a/sdk/cliproxy/service_config.go b/sdk/cliproxy/service_config.go
+index 890af11..a1f31db 100644
+--- a/sdk/cliproxy/service_config.go
++++ b/sdk/cliproxy/service_config.go
+@@ -146,6 +146,7 @@ func (s *Service) commitConfigUpdate(newCfg *config.Config) configCommit {
+ 	if newCfg == nil {
+ 		return configCommit{}
+ 	}
++	newCfg.ApplyPrivateBuild()
+ 	if errValidate := newCfg.ValidateCredentialWeights(); errValidate != nil {
+ 		log.WithError(errValidate).Warn("rejected config update with invalid credential weights")
+ 		return configCommit{}

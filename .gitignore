@@ -1,10 +1,19 @@
 node_modules/
+.build/
 dist/
 src-tauri/gen/
 src-tauri/target/
 bin-work/
 cpa-core/
 /portable-app.json
+/private-data/
+/oauth/
+/usage-records/
+/migration-backups/
+/config.toml
+/config.yaml
+/.env
+/.env.local
 
 AGENTS.md
 

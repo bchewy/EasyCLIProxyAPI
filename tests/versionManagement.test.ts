@@ -2,7 +2,6 @@ import { describe, expect, it } from 'bun:test';
 import { readFileSync } from 'node:fs';
 import ts from 'typescript';
 import {
-  DEFAULT_VERSION_DOWNLOAD_SOURCE,
   displayAppVersion,
 } from '../src/pages/VersionManagementPage';
 import { coreUpdateAvailable } from '../src/coreUpdate';
@@ -61,43 +60,18 @@ describe('VersionManagement update triggers', () => {
     return calls;
   };
 
-  for (const name of ['checkAppUpdate', 'checkLatest']) {
-    it(`calls ${name} only from the visit effect and its manual check button`, () => {
-      const calls = findCalls(name);
-      expect(calls).toHaveLength(2);
-      const triggers = calls.map((call) => {
-        let ancestor: ts.Node | undefined = call.parent;
-        while (ancestor) {
-          if (ts.isJsxAttribute(ancestor)) return ancestor.name.getText(pageSource);
-          if (ts.isCallExpression(ancestor)
-            && ancestor.expression.getText(pageSource) === 'useEffect') return 'useEffect';
-          ancestor = ancestor.parent;
-        }
-        return undefined;
-      });
-      expect(triggers.sort()).toEqual(['onClick', 'useEffect']);
+  for (const name of ['checkAppUpdate', 'checkLatest', 'installCoreVersion', 'setDownloadSource', 'openExternalUrl']) {
+    it(`does not offer the disabled ${name} operation`, () => {
+      expect(findCalls(name)).toHaveLength(0);
     });
   }
 
-  it('only changes the saved download source from the source selector handler', () => {
-    const sourceWrites = findCalls('setDownloadSource');
-    expect(sourceWrites).toHaveLength(1);
-    let ancestor: ts.Node | undefined = sourceWrites[0];
-    while (ancestor && !(ts.isVariableDeclaration(ancestor)
-      && ancestor.initializer && ts.isArrowFunction(ancestor.initializer))) {
-      ancestor = ancestor.parent;
-    }
-    expect(ancestor && ts.isVariableDeclaration(ancestor)
-      ? ancestor.name.getText(pageSource)
-      : undefined).toBe('updateVersionSource');
+  it('keeps the local bundle restore operation', () => {
+    expect(findCalls('installBundledCore')).toHaveLength(1);
   });
 });
 
 describe('VersionManagement helper functions', () => {
-  it('uses GitHub as the fallback before saved download source settings load', () => {
-    expect(DEFAULT_VERSION_DOWNLOAD_SOURCE).toBe('github');
-  });
-
   it('formats app versions with v prefix properly', () => {
     expect(displayAppVersion('1.0.0')).toBe('v1.0.0');
     expect(displayAppVersion('v1.2.3')).toBe('v1.2.3');

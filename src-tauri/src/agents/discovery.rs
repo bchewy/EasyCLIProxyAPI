@@ -306,6 +306,7 @@ pub(crate) fn parse_pi_provider_latest_version(
 }
 
 pub(crate) async fn fetch_pi_provider_latest_version(proxy_url: &str) -> Result<String, String> {
+    crate::private_build::deny_auxiliary_network("Pi registry queries")?;
     let client = build_http_client_with_proxy(
         reqwest::Client::builder()
             .connect_timeout(Duration::from_secs(5))
@@ -777,6 +778,7 @@ pub(crate) fn install_pi_package(
     home: &Path,
     proxy_url: &str,
 ) -> Result<(), String> {
+    crate::private_build::deny_auxiliary_network("Pi package installation")?;
     #[cfg(target_os = "windows")]
     let mut command = windows_command_for_executable(executable, false);
     #[cfg(not(target_os = "windows"))]
@@ -814,6 +816,7 @@ pub(crate) fn update_pi_package(
     home: &Path,
     proxy_url: &str,
 ) -> Result<(), String> {
+    crate::private_build::deny_auxiliary_network("Pi package updates")?;
     #[cfg(target_os = "windows")]
     let mut command = windows_command_for_executable(executable, false);
     #[cfg(not(target_os = "windows"))]
@@ -3069,26 +3072,8 @@ fn terminate_agent_probe_process(child: &mut Child) {
     let _ = child.wait();
 }
 
-pub(crate) fn read_agent_version(path: &Path, home: &Path) -> Option<String> {
-    #[cfg(target_os = "windows")]
-    let mut command = windows_command_for_executable(path, false);
-
-    #[cfg(not(target_os = "windows"))]
-    let mut command = Command::new(path);
-
-    command.arg("--version");
-    configure_background_command(&mut command);
-    configure_agent_command_environment(&mut command, home, path).ok()?;
-    let output = command_output_with_timeout(&mut command, AGENT_VERSION_PROBE_TIMEOUT).ok()??;
-    if !output.status.success() {
-        return None;
-    }
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    let stderr = String::from_utf8_lossy(&output.stderr);
-    stdout
-        .lines()
-        .chain(stderr.lines())
-        .find_map(normalize_detected_agent_version)
+pub(crate) fn read_agent_version(_path: &Path, _home: &Path) -> Option<String> {
+    None
 }
 
 pub(crate) fn normalize_detected_agent_version(value: &str) -> Option<String> {

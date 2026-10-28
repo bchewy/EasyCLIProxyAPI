@@ -1,7 +1,6 @@
 import { Switch } from './components/Switch';
 import { onWindowsCloseRequested } from './services/events';
 import {
-  openExternalUrl,
   getGuiSettings,
   resolveWindowsCloseRequest as resolveWindowsCloseRequestCommand,
 } from './services/appSettings';
@@ -15,7 +14,6 @@ import {
   Bot,
   Check,
   ChevronsUpDown,
-  ExternalLink,
   Eye,
   EyeOff,
   Gauge,
@@ -24,7 +22,6 @@ import {
   Languages,
   Lock,
   LogIn,
-  MessageCircle,
   Network,
   PackageOpen,
   Puzzle,
@@ -49,12 +46,12 @@ import { PluginsPage } from './pages/PluginsPage';
 import { PluginResourcePage } from './pages/PluginResourcePage';
 import { PluginNavChildren, PluginNavToggle } from './components/SidebarPluginNav';
 import { usePluginNavLayout } from './components/usePluginNavLayout';
-import { usePluginNavEntries } from './usePluginNavEntries';
 import {
   findPluginNavEntry,
   isPluginRoute,
   resolvePluginNavLayout,
   type PluginNavOverride,
+  type PluginNavEntry,
 } from './services/pluginNavigation';
 import { languageOptions, useI18n } from './i18n';
 import { AppUpdateDialog, AppUpdateProvider, useAppUpdate } from './appUpdate';
@@ -65,8 +62,7 @@ import { usePrivacyMode } from './privacy';
 import { Dialog } from './components/Dialog';
 import { EmptyState } from './components/EmptyState';
 
-const QQ_CONTACT_URL = 'https://qm.qq.com/q/3queDaIG';
-const DISCORD_SERVER_URL = 'https://discord.gg/PxvX4D9kgs';
+const privatePluginEntries: PluginNavEntry[] = [];
 
 const pages = [
   {
@@ -175,9 +171,10 @@ function AppContent() {
   const { status } = useCoreRuntime();
   const coreReady = Boolean(status?.ready);
   const [navElement, setNavElement] = useState<HTMLElement | null>(null);
-  const { entries: pluginEntries, fetched: pluginEntriesFetched } = usePluginNavEntries(coreReady);
+  const pluginEntries = privatePluginEntries;
+  const pluginEntriesFetched = true;
   const pluginEntry = findPluginNavEntry(pluginEntries, active);
-  const navPages = pages.filter((page) => page.id !== 'easy');
+  const navPages = pages.filter((page) => page.id !== 'easy' && page.id !== 'plugins');
   const { layout: autoPluginLayout, compact: navCompact } = usePluginNavLayout(navElement, navPages.length, pluginEntries.length);
   const [pluginReload, setPluginReload] = useState(0);
   const [pluginNavOverride, setPluginNavOverride] = useState<PluginNavOverride | null>(null);
@@ -211,7 +208,7 @@ function AppContent() {
 
   useEffect(() => {
     if (pluginEntriesFetched && isPluginRoute(active) && !pluginEntry) {
-      setActive('plugins');
+      setActive('home');
     }
   }, [active, pluginEntry, pluginEntriesFetched]);
 
@@ -296,6 +293,7 @@ function AppContent() {
   };
 
   const select = useCallback((pageId: AppPageId) => {
+    if (pageId === 'plugins' || isPluginRoute(pageId)) return;
     if (!canOpenAppPage(pageId, coreReady)) {
       return;
     }
@@ -313,16 +311,6 @@ function AppContent() {
     window.addEventListener('app:navigate', handleNavigate);
     return () => window.removeEventListener('app:navigate', handleNavigate);
   }, [select]);
-
-  const openContact = async () => {
-    try {
-      await openExternalUrl({
-        url: locale === 'zh-CN' ? QQ_CONTACT_URL : DISCORD_SERVER_URL,
-      });
-    } catch (error) {
-      console.error('Failed to open the contact link', error);
-    }
-  };
 
   const resolveWindowsCloseRequest = async (
     action: WindowsCloseAction,
@@ -366,8 +354,8 @@ function AppContent() {
             <div className="sidebar-brand" title={t('app.desktopConsole')}>
               <img src={appLogo} alt="" className="brand-mark brand-logo" />
               <div className="sidebar-brand-text">
-                <strong>EasyCLIProxyAPI</strong>
-                <span>{t('app.desktopConsole')}</span>
+                <strong>{t('privateBuild.name')}</strong>
+                <span>{t('privateBuild.providerOnly')}</span>
               </div>
             </div>
 
@@ -379,7 +367,7 @@ function AppContent() {
             >
               {navPages.map((page) => {
                 const Icon = page.icon;
-                const hasPluginChildren = page.id === 'plugins' && pluginEntries.length > 0;
+                const hasPluginChildren: boolean = false;
                 const isActive = page.id === active
                   || (hasPluginChildren && !pluginNavExpanded && pluginChildActive);
                 const locked = !canOpenAppPage(page.id, coreReady);
@@ -454,16 +442,6 @@ function AppContent() {
                 >
                   <Sprout size={16} strokeWidth={1.75} aria-hidden="true" />
                   <span>{t('app.nav.easy')}</span>
-                </button>
-                <button
-                  type="button"
-                  className="sidebar-link sidebar-contact"
-                  title={t('app.contact.title')}
-                  onClick={() => void openContact()}
-                >
-                  <MessageCircle size={16} strokeWidth={1.75} aria-hidden="true" />
-                  <span>{t('app.contact.label')}</span>
-                  <ExternalLink size={12} strokeWidth={1.75} aria-hidden="true" />
                 </button>
               </div>
 

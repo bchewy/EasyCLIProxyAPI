@@ -15,8 +15,6 @@ import {
   repairUsageCacheRecords,
   saveUsageModelPrice,
   deleteUsageModelPrice,
-  previewUsageModelPrices,
-  applyUsageModelPrices,
 } from '../services/usage';
 import type {
   CollectorStatus,
@@ -27,7 +25,6 @@ import type {
   ModelPrice,
   UsageStorageSettings,
   UsageRepairResult,
-  ModelPriceSyncPreview,
 } from '../services/usage';
 import { usagePreferences } from '../services/usagePreferences';
 import { useConfirmation } from '../components/ConfirmationDialog';
@@ -83,15 +80,6 @@ const USAGE_TABS = [
   { value: 'pricing', labelKey: 'usage.tab.pricing' },
   { value: 'data-management', labelKey: 'usage.tab.dataManagement' },
 ] as const;
-
-type SyncPriceDraft = {
-  selected: boolean;
-  price: ModelPrice;
-  prompt: string;
-  completion: string;
-  cacheRead: string;
-  cacheCreation: string;
-};
 
 const TAB_KEY = 'cpa-gui.usage-records-tab.v1';
 const RANGE_KEY = 'cpa-gui.usage-records-range.v1';
@@ -1398,15 +1386,6 @@ function PricingView({
   const [search, setSearch] = useState('');
   const [draft, setDraft] = useState<PriceDraft | null>(null);
   const [saving, setSaving] = useState(false);
-  const [syncing, setSyncing] = useState(false);
-  const [applyingSync, setApplyingSync] = useState(false);
-  const [syncSource, setSyncSource] = useState<'models-dev' | 'litellm'>(() => {
-    try { return usagePreferences.getItem('cpa-gui.pricing-sync-source.v1') === 'litellm' ? 'litellm' : 'models-dev'; }
-    catch { return 'models-dev'; }
-  });
-  const [syncPreview, setSyncPreview] = useState<ModelPriceSyncPreview | null>(null);
-  const [syncDrafts, setSyncDrafts] = useState<SyncPriceDraft[]>([]);
-  const [syncError, setSyncError] = useState('');
   const { notice, revision, showNotice, clearNotice } = useAppNotice();
 
   const visibleRows = pricing.rows.filter((row) => {
@@ -1460,72 +1439,6 @@ function PricingView({
     }
   };
 
-  const previewPrices = async () => {
-    setSyncing(true);
-    setSyncError('');
-    clearNotice();
-    try {
-      const preview = await previewUsageModelPrices({ query, source: syncSource });
-      const existing = new Map(pricing.rows.map((row) => [row.model.toLowerCase(), row.price]));
-      setSyncPreview(preview);
-      setSyncDrafts(preview.matches.map((price) => ({
-        selected: existing.get(price.model.toLowerCase())?.source !== 'manual',
-        price,
-        prompt: String(price.prompt),
-        completion: String(price.completion),
-        cacheRead: String(price.cacheRead),
-        cacheCreation: String(price.cacheCreation),
-      })));
-    } catch (syncError) {
-      showNotice(String(syncError), 'error');
-    } finally {
-      setSyncing(false);
-    }
-  };
-
-  const applySyncPrices = async () => {
-    const selected = syncDrafts.filter((item) => item.selected);
-    if (!selected.length) return;
-    const valid = (value: string) => value.trim() !== '' && Number.isFinite(Number(value)) && Number(value) >= 0;
-    if (selected.some((item) => !valid(item.prompt) || !valid(item.completion)
-      || (item.cacheRead.trim() !== '' && !valid(item.cacheRead))
-      || (item.cacheCreation.trim() !== '' && !valid(item.cacheCreation)))) {
-      setSyncError(t('usage.pricing.syncInvalid'));
-      return;
-    }
-    const prices = selected.map((item): ModelPrice => ({
-      ...item.price,
-      prompt: Number(item.prompt),
-      completion: Number(item.completion),
-      cacheRead: item.cacheRead.trim() === '' ? 0 : Number(item.cacheRead),
-      cacheCreation: item.cacheCreation.trim() === '' ? 0 : Number(item.cacheCreation),
-      cacheReadConfigured: item.cacheRead.trim() !== '',
-      cacheCreationConfigured: item.cacheCreation.trim() !== '',
-    }));
-    setApplyingSync(true);
-    setSyncError('');
-    clearNotice();
-    try {
-      const result = await applyUsageModelPrices({ prices });
-      setSyncPreview(null);
-      showNotice({ key: 'usage.pricing.syncResult', variables: { imported: result.imported } });
-      await onChanged();
-    } catch (syncError) {
-      setSyncError(String(syncError));
-    } finally {
-      setApplyingSync(false);
-    }
-  };
-
-  const updateSyncDraft = (index: number, update: Partial<SyncPriceDraft>) => {
-    setSyncDrafts((current) => current.map((item, currentIndex) => currentIndex === index ? { ...item, ...update } : item));
-  };
-
-  const changeSyncSource = (source: 'models-dev' | 'litellm') => {
-    setSyncSource(source);
-    try { usagePreferences.setItem('cpa-gui.pricing-sync-source.v1', source); } catch {}
-  };
-
   return (
     <section className="panel surface-card usage-pricing-panel">
       {confirmationDialog}
@@ -1555,66 +1468,11 @@ function PricingView({
               {t('usage.pricing.add')}
             </button>
           </div>
-          <div className="usage-pricing-action-group">
-            <Select value={syncSource} onChange={(event) => changeSyncSource(event.currentTarget.value as 'models-dev' | 'litellm')} aria-label={t('usage.pricing.syncSource')}>
-              <option value="models-dev">Models.dev</option>
-              <option value="litellm">LiteLLM</option>
-            </Select>
-            <button type="button" className="primary-button compact-button" disabled={syncing} onClick={() => void previewPrices()}>
-              {syncing ? t('usage.pricing.syncing') : t('usage.pricing.sync')}
-            </button>
-          </div>
+          <Notice tone="info" variant="text">{t('privateBuild.pricesManual')}</Notice>
         </div>
       </div>
 
       <FloatingNotice key={revision} notice={notice} onDismiss={clearNotice} />
-
-      {syncPreview ? <Dialog className="usage-price-sync-dialog" labelledBy="usage-price-sync-title" onClose={() => setSyncPreview(null)} closeDisabled={applyingSync}>
-        <div className="usage-price-sync-header">
-          <div>
-            <h2 id="usage-price-sync-title">{t('usage.pricing.syncPreview')}</h2>
-            <a href={syncPreview?.sourceUrl} target="_blank" rel="noreferrer">{syncPreview?.source}</a>
-          </div>
-          <button type="button" className="icon-button quiet" aria-label={t('common.close')} disabled={applyingSync} onClick={() => setSyncPreview(null)}><X size={16} /></button>
-        </div>
-        <p className="usage-price-sync-note">{t('usage.pricing.syncNote')}</p>
-        <div className="usage-price-sync-controls">
-          <span>{t('usage.pricing.syncCounts', { matched: syncDrafts.length, unmatched: syncPreview?.unmatched.length ?? 0 })}</span>
-          <button type="button" className="secondary-button" onClick={() => setSyncDrafts((current) => current.map((item) => ({ ...item, selected: true })))}>{t('usage.pricing.selectAll')}</button>
-          <button type="button" className="secondary-button" onClick={() => setSyncDrafts((current) => current.map((item) => ({ ...item, selected: false })))}>{t('usage.pricing.selectNone')}</button>
-        </div>
-        <div className="usage-price-sync-list">
-          {syncDrafts.map((item, index) => (
-            <div className="usage-price-sync-row" key={item.price.model}>
-              <label className="usage-price-sync-identity">
-                <Checkbox checked={item.selected} disabled={applyingSync} onChange={(event) => updateSyncDraft(index, { selected: event.currentTarget.checked })} />
-                <span><strong>{item.price.model}</strong><small>{item.price.sourceModelId}</small></span>
-              </label>
-              {(['prompt', 'completion', 'cacheRead', 'cacheCreation'] as const).map((field) => (
-                <label key={field}>
-                  <span>{t(`usage.pricing.${field}`)}</span>
-                  <input type="number" min="0" step="any" value={item[field]} disabled={applyingSync}
-                    onChange={(event) => updateSyncDraft(index, { [field]: event.currentTarget.value })} />
-                </label>
-              ))}
-            </div>
-          ))}
-          {syncDrafts.length === 0 && <p>{t('usage.pricing.syncNoMatches')}</p>}
-        </div>
-        {(syncPreview?.unmatched.length ?? 0) > 0 && (
-          <details className="usage-price-sync-unmatched">
-            <summary>{t('usage.pricing.syncUnmatched', { count: syncPreview?.unmatched.length ?? 0 })}</summary>
-            <p>{syncPreview?.unmatched.join(', ')}</p>
-          </details>
-        )}
-        {syncError && <Notice tone="error" variant="text">{syncError}</Notice>}
-        <div className="usage-price-sync-footer">
-          <button type="button" className="secondary-button" disabled={applyingSync} onClick={() => setSyncPreview(null)}>{t('common.cancel')}</button>
-          <button type="button" className="primary-button" disabled={applyingSync || !syncDrafts.some((item) => item.selected)} onClick={() => void applySyncPrices()}>
-            {applyingSync ? t('usage.pricing.saving') : t('usage.pricing.applySelected', { count: syncDrafts.filter((item) => item.selected).length })}
-          </button>
-        </div>
-      </Dialog> : null}
 
       {draft ? (
         <div className="surface-section usage-price-editor">

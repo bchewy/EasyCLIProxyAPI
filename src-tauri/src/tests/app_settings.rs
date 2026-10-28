@@ -70,8 +70,8 @@ fn gui_field_edit_preserves_comments_and_unknown_configuration() {
         .unwrap();
     let config = GuiConfigFile {
         port: 9527,
-        host: "0.0.0.0".to_string(),
-        allow_lan: true,
+        host: "127.0.0.1".to_string(),
+        allow_lan: false,
         silent_start: true,
         auth_dir: path_to_string(&home.join("custom-auth")),
         management_secret_key: "custom-secret".to_string(),
@@ -88,7 +88,7 @@ fn gui_field_edit_preserves_comments_and_unknown_configuration() {
     assert!(content.contains("custom-option = \"keep\""));
     assert!(content.contains("[third-party]"));
     assert!(content.contains("port = 9527"));
-    assert!(content.contains("host = \"0.0.0.0\""));
+    assert!(content.contains("host = \"127.0.0.1\""));
     assert!(content.contains("silent-start = true"));
     assert!(content.contains("management-secret-key = \"custom-secret\""));
     assert!(content.contains("usage-statistics-enabled = false"));
@@ -98,6 +98,20 @@ fn gui_field_edit_preserves_comments_and_unknown_configuration() {
     assert!(!content.contains("codex-session-repair-on-launch"));
     assert!(!content.contains("claude-code-working-directory"));
     fs::remove_dir_all(home).unwrap();
+}
+
+#[test]
+fn private_build_rejects_lan_binding_and_plugin_enablement_before_saving() {
+    let mut config = GuiConfigFile::default();
+    for host in ["", "0.0.0.0", "::", "192.0.2.1"] {
+        config.host = host.to_string();
+        assert!(validate_gui_config(&config).is_err(), "accepted host {host}");
+    }
+    config.host = "127.0.0.1".to_string();
+    config.plugins_enabled = true;
+    assert!(validate_gui_config(&config).is_err());
+    config.plugins_enabled = false;
+    validate_gui_config(&config).unwrap();
 }
 
 #[test]
@@ -134,7 +148,7 @@ fn configuration_watcher_uses_the_nearest_existing_parent() {
 }
 
 #[test]
-fn gui_config_defaults_are_stable() {
+fn gui_config_defaults_are_stable_except_for_private_random_credentials() {
     let config = GuiConfigFile::default();
     let content = toml::to_string_pretty(&config).unwrap();
 
@@ -150,9 +164,18 @@ fn gui_config_defaults_are_stable() {
     assert!(content.contains("window-height = 800"));
     assert!(content.contains("auth-dir = \"../oauth\""));
     assert!(content.contains("[[api-keys]]"));
-    assert!(content.contains("key = \"123456\""));
+    assert!(content.contains(&format!("key = \"{}\"", config.api_keys[0].key)));
     assert!(content.contains("remark = \"Default key\""));
-    assert!(content.contains(&format!("management-secret-key = \"{LEGACY_DEFAULT_MANAGEMENT_SECRET_KEY}\"")));
+    assert!(content.contains(&format!("management-secret-key = \"{}\"", config.management_secret_key)));
+    let other = GuiConfigFile::default();
+    for secret in [&config.api_keys[0].key, &config.management_secret_key] {
+        assert_eq!(secret.len(), 64);
+        assert!(secret.bytes().all(|byte| byte.is_ascii_hexdigit()));
+        assert_ne!(secret.as_str(), "123456");
+    }
+    assert_ne!(config.api_keys[0].key, other.api_keys[0].key);
+    assert_ne!(config.management_secret_key, other.management_secret_key);
+    assert_ne!(config.api_keys[0].key, config.management_secret_key);
     assert!(content.contains("plugins-enabled = false"));
     assert!(content.contains("routing-strategy = \"round-robin\""));
     assert!(content.contains("download-source = \"github\""));

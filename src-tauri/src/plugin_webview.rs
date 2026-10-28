@@ -355,6 +355,7 @@ async fn open_plugin_page(
     reload: bool,
     token: u64,
 ) -> Result<String, String> {
+    crate::private_build::deny_auxiliary_network("Plugin pages")?;
     let config = gui_config_state.snapshot()?;
     let url = resolve_plugin_entry_url(&config, &plugin_id, menu_index).await?;
     let key = management_plaintext_key(&config)?.to_string();

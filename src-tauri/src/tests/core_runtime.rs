@@ -551,6 +551,17 @@ fn core_process_state_tracks_and_releases_adopted_processes() {
 }
 
 #[test]
+fn private_build_refuses_process_adoption_and_clears_stale_tracking() {
+    let state = CoreProcessState::new(false);
+    state
+        .adopt_process_ids(&env::current_exe().unwrap(), vec![std::process::id()])
+        .unwrap();
+    assert!(adopt_existing_core_processes(&state).unwrap().is_empty());
+    assert_eq!(state.managed_pid(), None);
+    assert!(state.take_adopted_processes().is_empty());
+}
+
+#[test]
 fn tracked_core_stays_running_when_a_management_port_probe_misses() {
     let state = CoreProcessState::new(false);
     let binary_path = env::current_exe().unwrap();
@@ -1032,8 +1043,16 @@ fn replacing_a_core_rejects_locked_config_without_using_defaults() {
     fs::remove_dir_all(root).unwrap();
 }
 
+fn private_built_core_artifact(field: &str) -> PathBuf {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap();
+    let manifest: serde_json::Value = serde_json::from_slice(
+        &fs::read(root.join(".build/private-core-artifacts/manifest.json")).unwrap(),
+    ).unwrap();
+    root.join(manifest[field].as_str().unwrap())
+}
+
 #[test]
-fn bundled_core_install_handles_missing_and_unversioned_binaries() {
+fn bundled_core_install_requires_exact_bytes_even_without_valid_versions() {
     let root = agent_test_home("bundled-bootstrap-detection");
     let install_dir = root.join("cpa-core");
 
@@ -1044,12 +1063,16 @@ fn bundled_core_install_handles_missing_and_unversioned_binaries() {
     fs::write(existing_version.join(core_binary_name()), b"existing core").unwrap();
 
     assert!(core_needs_bundled_install(&install_dir, "v7.3.17"));
-    assert!(!core_needs_bundled_install(&install_dir, "invalid"));
+    assert!(core_needs_bundled_install(&install_dir, "invalid"));
+    fs::copy(private_built_core_artifact("binary"), existing_version.join(core_binary_name())).unwrap();
+    for version in ["v7.3.17", "invalid", "v999.0.0"] {
+        assert!(!core_needs_bundled_install(&install_dir, version));
+    }
     fs::remove_dir_all(root).unwrap();
 }
 
 #[test]
-fn bundled_core_install_replaces_older_installs_without_downgrading() {
+fn version_metadata_cannot_authorize_an_untrusted_core() {
     let root = agent_test_home("bundled-upgrade-detection");
     let install_dir = root.join("cpa-core");
     fs::create_dir_all(&install_dir).unwrap();
@@ -1059,10 +1082,10 @@ fn bundled_core_install_replaces_older_installs_without_downgrading() {
         ("v7.3.9", "v7.3.17", true),
         ("7.3.15", "v7.3.17", true),
         ("v7.3.17-beta.1", "v7.3.17", true),
-        ("v7.3.17", "7.3.17", false),
-        ("v7.3.18", "v7.3.17", false),
+        ("v7.3.17", "7.3.17", true),
+        ("v7.3.18", "v7.3.17", true),
         ("unknown", "v7.3.17", true),
-        ("v7.3.15", "invalid", false),
+        ("v7.3.15", "invalid", true),
     ] {
         write_core_metadata(
             &install_dir,
@@ -1086,7 +1109,7 @@ fn bundled_core_install_replaces_older_installs_without_downgrading() {
 }
 
 #[test]
-fn handled_bundled_core_does_not_undo_a_manual_rollback_on_restart() {
+fn handled_bundle_marker_cannot_authorize_a_manual_core_replacement() {
     let root = agent_test_home("bundled-manual-rollback");
     let install_dir = root.join("cpa-core");
     fs::create_dir_all(&install_dir).unwrap();
@@ -1107,7 +1130,7 @@ fn handled_bundled_core_does_not_undo_a_manual_rollback_on_restart() {
     assert!(core_needs_bundled_install(&install_dir, "v7.3.17"));
 
     mark_bundled_core_version_handled(&install_dir, "v7.3.17").unwrap();
-    assert!(!core_needs_bundled_install(&install_dir, "v7.3.17"));
+    assert!(core_needs_bundled_install(&install_dir, "v7.3.17"));
     assert!(core_needs_bundled_install(&install_dir, "v7.3.18"));
 
     fs::remove_file(binary).unwrap();
@@ -1116,7 +1139,7 @@ fn handled_bundled_core_does_not_undo_a_manual_rollback_on_restart() {
 }
 
 #[test]
-fn an_already_newer_core_satisfies_the_bundle_after_manual_rollback() {
+fn newer_version_and_rollback_metadata_cannot_bypass_core_integrity() {
     let root = agent_test_home("bundled-newer-manual-rollback");
     let install_dir = root.join("cpa-core");
     fs::create_dir_all(&install_dir).unwrap();
@@ -1131,7 +1154,7 @@ fn an_already_newer_core_satisfies_the_bundle_after_manual_rollback() {
     )
     .unwrap();
 
-    assert!(!core_needs_bundled_install(&install_dir, "v7.3.17"));
+    assert!(core_needs_bundled_install(&install_dir, "v7.3.17"));
     remember_bundled_core_when_up_to_date(&install_dir, "v7.3.17").unwrap();
     write_core_metadata(
         &install_dir,
@@ -1142,13 +1165,13 @@ fn an_already_newer_core_satisfies_the_bundle_after_manual_rollback() {
         },
     )
     .unwrap();
-    assert!(!core_needs_bundled_install(&install_dir, "v7.3.17"));
+    assert!(core_needs_bundled_install(&install_dir, "v7.3.17"));
     assert!(core_needs_bundled_install(&install_dir, "v7.3.19"));
     fs::remove_dir_all(root).unwrap();
 }
 
 #[test]
-fn stale_core_checksums_do_not_block_a_new_bundled_archive() {
+fn archive_checksums_cannot_authorize_bytes_outside_the_compiled_manifest() {
     let root = agent_test_home("bundled-stale-checksums");
     let archive = root.join("CLIProxyAPI_7.3.17_windows_amd64.zip");
     fs::write(&archive, b"new bundled core").unwrap();
@@ -1157,7 +1180,7 @@ fn stale_core_checksums_do_not_block_a_new_bundled_archive() {
         format!("{}  CLIProxyAPI_7.3.15_windows_amd64.zip\n", "a".repeat(64)),
     )
     .unwrap();
-    validate_bundled_core_checksum(&archive).unwrap();
+    assert!(validate_bundled_core_checksum(&archive).is_err());
 
     fs::write(
         root.join(CORE_CHECKSUMS_FILE),
@@ -1179,6 +1202,10 @@ fn stale_core_checksums_do_not_block_a_new_bundled_archive() {
         ),
     )
     .unwrap();
+    assert!(validate_bundled_core_checksum(&archive).is_err());
+    fs::remove_file(root.join(CORE_CHECKSUMS_FILE)).unwrap();
+    assert!(validate_bundled_core_checksum(&archive).is_err());
+    fs::copy(private_built_core_artifact("archive"), &archive).unwrap();
     validate_bundled_core_checksum(&archive).unwrap();
     fs::remove_dir_all(root).unwrap();
 }

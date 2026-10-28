@@ -1,106 +1,75 @@
 import { createHash } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
-import { copyFile, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
+import { copyFile, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { dirname, join } from 'node:path';
+import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { expect, test } from 'bun:test';
 
-const archiveName = 'CLIProxyAPI_8.0.10_windows_amd64.zip';
-const archiveContents = 'verified bundled core archive';
-
-async function withPortableFixture(run: (root: string, coreOutput: string) => Promise<void>) {
-  // Run the real CLI in a disposable project so packaging cannot touch bin-work.
-  const root = await mkdtemp(join(tmpdir(), 'easycli-portable-preparation-'));
+const archiveName = 'CLIProxyAPI_8.0.44_windows_amd64.zip';
+const digest = (bytes: string) => createHash('sha256').update(bytes).digest('hex');
+async function fixture(run: (root: string) => Promise<void>) {
+  const root = await mkdtemp(join(tmpdir(), 'easycli-private-package-'));
   try {
-    for (const directory of ['scripts', 'src-tauri', 'cpa-core', 'bin-work/cpa-core']) {
+    for (const directory of ['scripts','src-tauri','cpa-core','core/patches','.build/private-core-artifacts','bin-work/private-data']) {
       await mkdir(join(root, directory), { recursive: true });
     }
-    for (const script of ['portable.mjs', 'version.mjs']) {
+    for (const script of ['portable.mjs','version.mjs']) {
       await copyFile(fileURLToPath(new URL(`../scripts/${script}`, import.meta.url)), join(root, 'scripts', script));
     }
-    await writeFile(join(root, 'src-tauri', 'Cargo.toml'), '[package]\nname = "cpa-gui"\nversion = "0.3.0"\n');
-    await writeFile(join(root, 'core-version.txt'), '8.0.10\n');
-    await writeFile(join(root, 'cpa-gui.exe'), 'new GUI executable');
-    await writeFile(join(root, 'cpa-core', archiveName), archiveContents);
-    const digest = createHash('sha256').update(archiveContents).digest('hex');
-    await writeFile(join(root, 'cpa-core', 'checksums.txt'), `${digest}  ${archiveName}\n`);
-    await run(root, join(root, 'bin-work', 'cpa-core'));
+    await writeFile(join(root,'src-tauri/Cargo.toml'), '[package]\nname = "cpa-gui"\nversion = "0.3.6"\n');
+    await writeFile(join(root,'core-version.txt'), '8.0.44\n');
+    await writeFile(join(root,'cpa-gui.exe'), 'fixture-gui');
+    await writeFile(join(root,'core/patches/policy.patch'), 'fixture-policy');
+    const lock = JSON.stringify({ commit:'fixture-commit', privacyRevision:1, version:'8.0.44', patches:['policy.patch'] });
+    await writeFile(join(root,'core/source.lock.json'), lock);
+    await writeFile(join(root,'cpa-core',archiveName), 'fixture-archive');
+    await writeFile(join(root,'.build/private-core-artifacts/cli-proxy-api.exe'), 'fixture-core');
+    await writeFile(join(root,'.build/private-core-artifacts/manifest.json'), JSON.stringify({
+      schema:1, sourceCommit:'fixture-commit', privacyRevision:1, lockSha256:digest(lock),
+      patchSetSha256:digest('policy.patch\0fixture-policy'), platform:'windows', arch:'amd64',
+      binary:'.build/private-core-artifacts/cli-proxy-api.exe', binarySha256:digest('fixture-core'),
+      archive:`cpa-core/${archiveName}`, archiveSha256:digest('fixture-archive'),
+    }));
+    await run(root);
   } finally {
-    await rm(root, { recursive: true, force: true });
+    await rm(root, { recursive:true, force:true });
   }
 }
-
-function prepare(root: string, preserve = false) {
-  const result = spawnSync('node', [
-    join(root, 'scripts', 'portable.mjs'),
-    '--binary', join(root, 'cpa-gui.exe'),
-    '--output', join(root, 'bin-work'),
-    '--os', 'windows',
-    '--arch', 'amd64',
-    '--download', 'false',
-    '--preserve-runtime-config', String(preserve),
-  ], { encoding: 'utf8', cwd: root });
-  expect(result.stderr).toBe('');
-  expect(result.status).toBe(0);
-  return result.stdout;
+function prepare(root: string, download = false) {
+  return spawnSync('node',[join(root,'scripts/portable.mjs'),'--binary',join(root,'cpa-gui.exe'),
+    '--output',join(root,'bin-work'),'--os','windows','--arch','amd64','--download',String(download)],
+    { encoding:'utf8', cwd:root });
 }
-
-test('local portable rebuilds preserve installed plugins and runtime data while replacing bundled archives', async () => {
-  await withPortableFixture(async (root, coreOutput) => {
-    const preserved = new Map([
-      ['config.yaml', 'plugins:\n  configs:\n    kiro: {enabled: true}\n'],
-      ['plugins/windows/amd64/kiro-v1.2.3.dll', 'installed kiro binary'],
-      ['plugins/model-fallback-router-v0.2.0.dll', 'installed fallback binary'],
-      ['custom-plugins/local-router.dll', 'custom plugin binary'],
-      ['oauth/account.json', '{"fixture":"credential"}'],
-      ['logs/request.log', 'runtime log'],
-      ['user-data.json', '{"keep":true}'],
-      ['user-backup.zip', 'custom archive'],
-      ['cli-proxy-api.exe', 'existing installed core'],
-      ['cpa-gui-meta.json', '{"version":"v8.0.11"}'],
-      ['cpa-gui-bundled-core-handled.txt', 'v8.0.9'],
-      ['CLIProxyAPI_7.0.0_windows_amd64.zip/keep.txt', 'same-named directory is user data'],
-    ]);
-    for (const [relative, contents] of preserved) {
-      const target = join(coreOutput, relative);
-      await mkdir(dirname(target), { recursive: true });
-      await writeFile(target, contents);
-    }
-    for (const oldArchive of [
-      'CLIProxyAPI_8.0.9_windows_amd64.zip',
-      'CLIProxyAPI_8.0.10_windows_aarch64.zip',
-      'CLIProxyAPI_8.0.9_linux_amd64.tar.gz',
-      'CLIProxyAPI_8.0.9_darwin_aarch64.tar.gz',
-    ]) {
-      await writeFile(join(coreOutput, oldArchive), 'old bundled archive');
-    }
-
-    // Repeat the same copy to exercise the ordinary rebuild/update workflow.
-    for (let attempt = 0; attempt < 2; attempt++) {
-      expect(prepare(root, true)).toContain('preserved installed plugins and runtime data');
-      for (const [relative, contents] of preserved) {
-        expect(await readFile(join(coreOutput, relative), 'utf8')).toBe(contents);
-      }
-      const archives = (await readdir(coreOutput, { withFileTypes: true }))
-        .filter(entry => entry.isFile() && entry.name.startsWith('CLIProxyAPI_'))
-        .map(entry => entry.name);
-      expect(archives).toEqual([archiveName]);
-      expect(await readFile(join(coreOutput, archiveName), 'utf8')).toBe(archiveContents);
+test('private packages contain the verified local archive and preserve separate runtime data on rebuild', async () => {
+  await fixture(async root => {
+    await writeFile(join(root,'bin-work/private-data/fixture.toml'),'local-user-data');
+    for (let i=0;i<2;i++) {
+      const result = prepare(root);
+      expect(result.status).toBe(0);
+      expect(result.stderr).toBe('');
+      expect(await readFile(join(root,'bin-work/cpa-core',archiveName),'utf8')).toBe('fixture-archive');
+      expect(await readFile(join(root,'bin-work/private-data/fixture.toml'),'utf8')).toBe('local-user-data');
+      expect(JSON.parse(await readFile(join(root,'bin-work/portable-app.json'),'utf8')).autoUpdate).toBe(false);
     }
   });
 });
-
-test('release portable preparation still creates an archive-only core directory', async () => {
-  await withPortableFixture(async (root, coreOutput) => {
-    await mkdir(join(coreOutput, 'plugins'), { recursive: true });
-    await writeFile(join(coreOutput, 'plugins', 'sample.dll'), 'stale release staging file');
-    await writeFile(join(coreOutput, 'config.yaml'), 'stale release configuration');
-    await writeFile(join(coreOutput, 'CLIProxyAPI_8.0.9_windows_amd64.zip'), 'old archive');
-
-    expect(prepare(root)).toContain('(archive only)');
-    expect(await readdir(coreOutput)).toEqual([archiveName]);
-    expect(await readFile(join(coreOutput, archiveName), 'utf8')).toBe(archiveContents);
-    expect(await readFile(join(root, 'bin-work', 'EasyCLIProxyAPI.exe'), 'utf8')).toBe('new GUI executable');
+for (const [name,path] of [
+  ['archive',`cpa-core/${archiveName}`],
+  ['binary','.build/private-core-artifacts/cli-proxy-api.exe'],
+  ['patch','core/patches/policy.patch'],
+] as const) {
+  test(`private packaging rejects a changed ${name}`, async () => {
+    await fixture(async root => {
+      await writeFile(join(root,path),'replaced-with-untrusted-bytes');
+      expect(prepare(root).status).not.toBe(0);
+    });
+  });
+}
+test('private packaging rejects missing provenance and online download requests', async () => {
+  await fixture(async root => {
+    expect(prepare(root,true).stderr).toContain('Online core downloads are disabled');
+    await rm(join(root,'.build/private-core-artifacts/manifest.json'));
+    expect(prepare(root).status).not.toBe(0);
   });
 });

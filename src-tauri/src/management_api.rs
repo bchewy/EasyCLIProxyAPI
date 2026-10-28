@@ -457,7 +457,6 @@ pub(crate) fn management_http_client() -> Result<reqwest::Client, String> {
             .no_proxy()
             .connect_timeout(Duration::from_secs(10))
             .timeout(Duration::from_secs(30))
-            .danger_accept_invalid_certs(true)
             .build()
             .map_err(|err| format_management_request_error("Failed to create management API client", &err))
     });

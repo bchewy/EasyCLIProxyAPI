@@ -5,7 +5,6 @@ import {
   createContext,
   useCallback,
   useContext,
-  useEffect,
   useMemo,
   useRef,
   useState,
@@ -24,7 +23,6 @@ type CoreUpdateContextValue = {
   reset: () => void;
 };
 
-let latestAutoCheckStarted = false;
 let cachedLatest: CoreLatest | null = null;
 let cachedLatestError = '';
 let latestCheckPromise: Promise<CoreLatest> | null = null;
@@ -109,15 +107,6 @@ export function CoreUpdateProvider({ children }: { children: ReactNode }) {
     setError('');
     setChecking(false);
   }, []);
-
-  useEffect(() => {
-    if (!latestAutoCheckStarted) {
-      latestAutoCheckStarted = true;
-      void check();
-    } else if (latestCheckPromise) {
-      void check();
-    }
-  }, [check]);
 
   const value = useMemo<CoreUpdateContextValue>(() => ({
     latest,

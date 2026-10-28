@@ -19,6 +19,7 @@ pub(crate) async fn get_plugin_latest_releases(
     gui_config_state: tauri::State<'_, GuiConfigState>,
     repositories: Vec<String>,
 ) -> Result<Vec<PluginLatestRelease>, String> {
+    crate::private_build::deny_auxiliary_network("Plugin release queries")?;
     let config = gui_config_state.snapshot()?;
     let response = management_http_client()?
         .get(management_endpoint(&config, "config/server")?)
@@ -171,6 +172,7 @@ pub(crate) async fn resolve_plugin_entry_url(
     plugin_id: &str,
     menu_index: usize,
 ) -> Result<String, String> {
+    crate::private_build::deny_auxiliary_network("Plugin pages")?;
     let response = request_plugins(config).await?;
     let plugins = read_management_value(response).await?;
     let path = active_plugin_menu_path(&plugins, plugin_id, menu_index)?;

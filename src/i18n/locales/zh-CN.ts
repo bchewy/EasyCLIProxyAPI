@@ -3,6 +3,19 @@ import { homeZhCN } from '../home';
 import { authFileListZhCN } from '../authFileList';
 
 export const zhCN = {
+  "privateBuild.name": "EasyCLIProxyAPI 隐私版",
+  "privateBuild.providerOnly": "仅连接模型供应商",
+  "privateBuild.policy": "仅允许连接已配置的 AI 供应商。在线更新、插件、模型目录下载和价格同步均已禁用。升级时请安装新版隐私构建。",
+  "privateBuild.pluginsDisabled": "此隐私构建禁用了插件，因为插件可以自行建立网络连接。",
+  "privateBuild.pricesManual": "在线价格同步已禁用，可手动输入价格。",
+  "privateBuild.piPackagesDisabled": "Pi 包安装和更新已禁用。仍可配置现有的本地集成。",
+  "privateBuild.piDownloadDisabled": "此隐私构建禁用了 Pi 包下载。",
+  "privateBuild.bundledCore": "内置隐私内核",
+  "privateBuild.restoreHint": "恢复将使用经过验证的本地内置文件替换内核，不进行下载。",
+  "privateBuild.restore": "恢复内置隐私内核",
+  "privateBuild.managementKey": "本地管理密钥",
+  "privateBuild.managementKeyHint": "桌面应用使用此密钥管理本地内核。独立的浏览器管理面板已禁用。",
+  "privateBuild.localOnly": "此隐私构建仅接受本地连接。",
   'app.window.minimize': '最小化',
   'app.window.maximize': '最大化',
   'app.window.restore': '还原窗口',

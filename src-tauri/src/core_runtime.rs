@@ -142,6 +142,7 @@ pub(crate) async fn check_latest_core(
     app: tauri::AppHandle,
     gui_config_state: tauri::State<'_, GuiConfigState>,
 ) -> Result<CoreLatest, String> {
+    private_build::deny_auxiliary_network("Core update checks")?;
     let _detection_guard = VERSION_SOURCE_DETECTION_LOCK.lock().await;
     let platform = current_core_platform()?;
     let config = gui_config_state.snapshot()?;
@@ -204,23 +205,9 @@ pub(crate) async fn install_bundled_core(
     .map_err(|error| format!("Offline kernel installation background task failed: {error}"))?
 }
 
-pub(crate) fn core_needs_bundled_install(install_dir: &Path, bundled_version: &str) -> bool {
-    let Ok(bundled_version) =
-        semver::Version::parse(bundled_version.trim().trim_start_matches('v'))
-    else {
-        return false;
-    };
-    if find_core_binary(install_dir).is_none() {
-        return true;
-    }
-    if bundled_core_version_handled(install_dir, &bundled_version) {
-        return false;
-    }
-    read_core_metadata(install_dir)
-        .and_then(|metadata| {
-            semver::Version::parse(metadata.version.trim().trim_start_matches('v')).ok()
-        })
-        .is_none_or(|installed| bundled_version > installed)
+pub(crate) fn core_needs_bundled_install(install_dir: &Path, _bundled_version: &str) -> bool {
+    find_core_binary(install_dir)
+        .is_none_or(|path| private_build::verify_binary(&path).is_err())
 }
 
 fn bundled_core_version_handled(install_dir: &Path, bundled_version: &semver::Version) -> bool {
@@ -316,6 +303,7 @@ pub(crate) async fn install_core_version(
     window: tauri::Window,
     version: Option<String>,
 ) -> Result<CoreInstallResult, String> {
+    private_build::deny_auxiliary_network("Online core installation")?;
     tauri::async_runtime::spawn_blocking(move || {
         let _guard = lock_core_operation(app.state::<CoreProcessState>().inner())?;
         let state = app.state::<CoreDownloadState>();
@@ -673,6 +661,7 @@ pub(crate) fn install_bundled_core_inner(
 
     let binary_path = find_core_binary(&staging_dir)
         .ok_or_else(|| "Bundled archive does not contain a CPA kernel binary".to_string())?;
+    private_build::verify_binary(&binary_path)?;
     let binary_relative_path = binary_path
         .strip_prefix(&staging_dir)
         .map_err(|error| format!("Failed to calculate bundled kernel binary path: {error}"))?
@@ -1321,21 +1310,12 @@ pub(crate) fn current_core_status(
 ) -> Result<CoreStatus, String> {
     let install_dir = core_install_dir()?;
     let binary_path = find_core_binary(&install_dir);
-    let installed = binary_path.is_some();
+    let installed = binary_path.as_ref().is_some_and(|path| private_build::verify_binary(path).is_ok());
     let starting = process_state.is_some_and(CoreProcessState::is_starting);
     let managed_pid = process_state.and_then(|state| state.managed_pid());
     let management_port_open = management_port.map(is_management_port_open);
-    let process_id = match managed_pid {
-        Some(process_id) => Some(process_id),
-        None if management_port_open.unwrap_or(true) => binary_path
-            .as_ref()
-            .and_then(|path| find_core_process_ids(path).first().copied()),
-        None => None,
-    };
-    // A tracked process remains running even if a single management-port probe
-    // times out. The port probe is still required before discovering an
-    // untracked process, but using it to override a known live PID makes the UI
-    // oscillate between running and stopped while continuing to show that PID.
+    // A matching path does not prove which bytes an untracked process loaded.
+    let process_id = managed_pid;
     let running = process_id.is_some();
     let ready = running && management_port_open.unwrap_or(true);
     let current_version = read_core_metadata(&install_dir).map(|metadata| metadata.version);
@@ -1343,7 +1323,7 @@ pub(crate) fn current_core_status(
     let message = if starting {
         "CPA kernel is starting".to_string()
     } else if !installed {
-        "CPA kernel is not installed. Install the latest version first".to_string()
+        "Private core is missing or unverified. Restore the bundled private core".to_string()
     } else if running {
         "CPA kernel is running".to_string()
     } else {
@@ -1494,9 +1474,19 @@ fn start_core_process_once(
     log_path: &Path,
     management_address: SocketAddr,
 ) -> Result<CoreChild, CoreStartAttemptFailure> {
+    private_build::verify_binary(binary_path)
+        .map_err(|error| CoreStartAttemptFailure {
+            failure: CoreStartupFailure::Spawn(error),
+            log_error: None,
+        })?;
     let mut command = Command::new(binary_path);
+    let inherited = ["HOME", "USERPROFILE", "APPDATA", "LOCALAPPDATA", "SYSTEMROOT", "WINDIR", "TEMP", "TMP", "TMPDIR", "PATH", "LANG", "LC_ALL"]
+        .into_iter()
+        .filter_map(|key| env::var_os(key).map(|value| (key, value)))
+        .collect::<Vec<_>>();
+    command.env_clear().envs(inherited);
     command
-        .args(["-config", config_path])
+        .args(["-config", config_path, "--local-model"])
         .current_dir(install_dir)
         .stdin(Stdio::null());
     let log_error = match core_start_stdio(log_path) {
@@ -1557,12 +1547,10 @@ pub(crate) fn start_core_process_inner(
     }
     let binary_path = find_core_binary(&install_dir)
         .ok_or_else(|| "CPA kernel is not installed. Install the latest version first".to_string())?;
+    private_build::verify_binary(&binary_path)?;
 
     let existing_process_ids = find_core_process_ids(&binary_path);
     if process_state.managed_pid().is_some() || !existing_process_ids.is_empty() {
-        if !existing_process_ids.is_empty() {
-            process_state.adopt_process_ids(&binary_path, existing_process_ids)?;
-        }
         return Err("CPA kernel is already running".to_string());
     }
     let management_address = core_management_address(&gui_config.host, gui_config.port)?;
@@ -1724,11 +1712,6 @@ pub(crate) fn stop_core_process_inner(process_state: &CoreProcessState) -> Resul
         })
         .map(|process| process.process_id)
         .collect::<Vec<_>>();
-    if let Ok(install_dir) = core_install_dir() {
-        if let Some(binary_path) = find_core_binary(&install_dir) {
-            process_ids.extend(find_core_process_ids(&binary_path));
-        }
-    }
     process_ids.sort_unstable();
     process_ids.dedup();
 
@@ -1785,12 +1768,12 @@ pub(crate) fn core_base_dir() -> Result<PathBuf, String> {
         let home_dir = env::var_os("HOME")
             .map(PathBuf::from)
             .ok_or_else(|| "Unable to determine macOS user directory".to_string())?;
-        return Ok(home_dir
+        return private_build::private_directory(home_dir
             .join("Library")
             .join("Application Support")
-            .join("com.cpa.gui"));
+            .join("com.bchewy.easycliproxyapi.private"));
     }
-    Ok(executable_dir)
+    private_build::private_directory(executable_dir.join("private-data"))
 }
 
 pub(crate) fn bundled_core_locations(
@@ -1805,6 +1788,7 @@ pub(crate) fn bundled_core_locations(
         ));
     }
     locations.push((base_dir.join(CORE_VERSION_FILE), base_dir.join("cpa-core")));
+    locations.push((executable_dir.join(CORE_VERSION_FILE), executable_dir.join("cpa-core")));
     if let Some(project_root) = source_project_root(executable_dir) {
         if project_root != base_dir {
             locations.push((
@@ -2020,6 +2004,7 @@ pub(crate) fn migrate_core_config_for_update(
 }
 
 pub(crate) fn validate_bundled_core_checksum(archive_path: &Path) -> Result<(), String> {
+    private_build::verify_archive(archive_path)?;
     let Some(directory) = archive_path.parent() else {
         return Err("Bundled kernel archive has no parent directory".to_string());
     };
@@ -2318,14 +2303,8 @@ pub(crate) fn process_executable_path(process_id: u32) -> Option<PathBuf> {
 pub(crate) fn adopt_existing_core_processes(
     process_state: &CoreProcessState,
 ) -> Result<Vec<u32>, String> {
-    let install_dir = core_install_dir()?;
-    let Some(binary_path) = find_core_binary(&install_dir) else {
-        process_state.clear_adopted_processes()?;
-        return Ok(Vec::new());
-    };
-    let process_ids = find_core_process_ids(&binary_path);
-    process_state.adopt_process_ids(&binary_path, process_ids.clone())?;
-    Ok(process_ids)
+    process_state.clear_adopted_processes()?;
+    Ok(Vec::new())
 }
 
 pub(crate) fn shutdown_managed_core(

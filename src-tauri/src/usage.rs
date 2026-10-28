@@ -3988,6 +3988,7 @@ pub(crate) async fn preview_usage_model_prices(
     source: String,
     gui_config_state: tauri::State<'_, GuiConfigState>,
 ) -> Result<ModelPriceSyncPreview, String> {
+    crate::private_build::deny_auxiliary_network("Remote pricing synchronization")?;
     let (source_name, source_url) = match source.as_str() {
         "models-dev" => ("Models.dev", MODEL_PRICE_SYNC_URL),
         "litellm" => ("LiteLLM", LITELLM_PRICE_SYNC_URL),
