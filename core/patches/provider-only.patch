@@ -141,6 +141,19 @@ index 50767c7..e662d9b 100644
  golang.org/x/time v0.14.0 h1:MRx4UaLrDotUKUdCIqzPC48t1Y9hANFKIRpNx+Te8PI=
  golang.org/x/time v0.14.0/go.mod h1:eL/Oa2bBBK0TkX57Fyni+NgnyQQN4LitPmob2Hjnqw4=
  golang.org/x/tools v0.0.0-20180917221912-90fa682c2a6e/go.mod h1:n7NCudcB/nEzxVGmLbDWY5pfWTLqBcC2KZ6jyYvM4mQ=
+diff --git a/internal/api/handlers/management/auth_files_oauth_callback.go b/internal/api/handlers/management/auth_files_oauth_callback.go
+index 0efdb35..65288bb 100644
+--- a/internal/api/handlers/management/auth_files_oauth_callback.go
++++ b/internal/api/handlers/management/auth_files_oauth_callback.go
+@@ -58,7 +58,7 @@ func startCallbackForwarder(port int, provider, targetBase string) (*callbackFor
+ 		stopForwarderInstance(port, prev)
+ 	}
+ 
+-	addr := fmt.Sprintf("0.0.0.0:%d", port)
++	addr := fmt.Sprintf("127.0.0.1:%d", port)
+ 	ln, err := net.Listen("tcp", addr)
+ 	if err != nil {
+ 		return nil, fmt.Errorf("failed to listen on %s: %w", addr, err)
 diff --git a/internal/api/handlers/management/config_basic.go b/internal/api/handlers/management/config_basic.go
 index a6c02c4..43e1e2b 100644
 --- a/internal/api/handlers/management/config_basic.go
@@ -213,6 +226,45 @@ index dc21424..2cb6a4a 100644
  	h.installPluginFromStore(c, runtime.GOOS, runtime.GOARCH)
  }
  
+diff --git a/internal/api/handlers/management/private_build_callback_test.go b/internal/api/handlers/management/private_build_callback_test.go
+new file mode 100644
+index 0000000..fc8f727
+--- /dev/null
++++ b/internal/api/handlers/management/private_build_callback_test.go
+@@ -0,0 +1,33 @@
++package management
++
++import (
++	"fmt"
++	"net/http"
++	"testing"
++	"time"
++
++	"github.com/router-for-me/CLIProxyAPI/v8/internal/privatebuild/testutil"
++)
++
++func TestPrivateBuildCallbackForwarderStaysOnLoopback(t *testing.T) {
++	port, externalAddress := testutil.CallbackPort(t)
++	target := "http://127.0.0.1:8317/callback"
++	forwarder, err := startCallbackForwarder(port, "fixture", target)
++	if err != nil {
++		t.Fatalf("start forwarder: %v", err)
++	}
++	defer stopCallbackForwarderInstance(port, forwarder)
++	client := &http.Client{Transport: &http.Transport{Proxy: nil}, Timeout: time.Second,
++		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
++	defer client.CloseIdleConnections()
++	query := "?code=fixture&state=fixture"
++	resp, err := client.Get(fmt.Sprintf("http://localhost:%d/callback%s", port, query))
++	if err != nil {
++		t.Fatal(err)
++	}
++	defer resp.Body.Close()
++	if resp.StatusCode != http.StatusFound || resp.Header.Get("Location") != target+query {
++		t.Fatalf("local forwarding failed: status=%d location=%q", resp.StatusCode, resp.Header.Get("Location"))
++	}
++	testutil.AssertNonLoopbackRefused(t, externalAddress)
++}
 diff --git a/internal/api/server_management.go b/internal/api/server_management.go
 index 1eabc9c..d9abd7a 100644
 --- a/internal/api/server_management.go
@@ -236,6 +288,50 @@ index 1eabc9c..d9abd7a 100644
  	cfg := s.getConfig()
  	if cfg == nil || cfg.Home.Enabled || cfg.RemoteManagement.DisableControlPanel {
  		c.AbortWithStatus(http.StatusNotFound)
+diff --git a/internal/auth/claude/oauth_server.go b/internal/auth/claude/oauth_server.go
+index a6ebe2f..bc2be06 100644
+--- a/internal/auth/claude/oauth_server.go
++++ b/internal/auth/claude/oauth_server.go
+@@ -87,7 +87,7 @@ func (s *OAuthServer) Start() error {
+ 	mux.HandleFunc("/success", s.handleSuccess)
+ 
+ 	s.server = &http.Server{
+-		Addr:         fmt.Sprintf(":%d", s.port),
++		Addr:         fmt.Sprintf("127.0.0.1:%d", s.port),
+ 		Handler:      mux,
+ 		ReadTimeout:  10 * time.Second,
+ 		WriteTimeout: 10 * time.Second,
+@@ -298,7 +298,7 @@ func (s *OAuthServer) sendResult(result *OAuthResult) {
+ // Returns:
+ //   - bool: True if the port is available, false otherwise
+ func (s *OAuthServer) isPortAvailable() bool {
+-	addr := fmt.Sprintf(":%d", s.port)
++	addr := fmt.Sprintf("127.0.0.1:%d", s.port)
+ 	listener, err := net.Listen("tcp", addr)
+ 	if err != nil {
+ 		return false
+diff --git a/internal/auth/codex/oauth_server.go b/internal/auth/codex/oauth_server.go
+index a71994a..39daab2 100644
+--- a/internal/auth/codex/oauth_server.go
++++ b/internal/auth/codex/oauth_server.go
+@@ -86,7 +86,7 @@ func (s *OAuthServer) Start() error {
+ 	mux.HandleFunc("/success", s.handleSuccess)
+ 
+ 	s.server = &http.Server{
+-		Addr:         fmt.Sprintf(":%d", s.port),
++		Addr:         fmt.Sprintf("127.0.0.1:%d", s.port),
+ 		Handler:      mux,
+ 		ReadTimeout:  10 * time.Second,
+ 		WriteTimeout: 10 * time.Second,
+@@ -299,7 +299,7 @@ func (s *OAuthServer) sendResult(result *OAuthResult) {
+ // Returns:
+ //   - bool: True if the port is available, false otherwise
+ func (s *OAuthServer) isPortAvailable() bool {
+-	addr := fmt.Sprintf(":%d", s.port)
++	addr := fmt.Sprintf("127.0.0.1:%d", s.port)
+ 	listener, err := net.Listen("tcp", addr)
+ 	if err != nil {
+ 		return false
 diff --git a/internal/cmd/discover.go b/internal/cmd/discover.go
 index c871abd..1e4856f 100644
 --- a/internal/cmd/discover.go
@@ -748,6 +844,62 @@ index 2b17ecd..a78a83a 100644
  	options = normalizeInstallOptions(options)
  	id := strings.TrimSpace(plugin.ID)
  	if !validPluginID(id) {
+diff --git a/internal/privatebuild/oauth_callback_test.go b/internal/privatebuild/oauth_callback_test.go
+new file mode 100644
+index 0000000..5f525d5
+--- /dev/null
++++ b/internal/privatebuild/oauth_callback_test.go
+@@ -0,0 +1,50 @@
++package privatebuild_test
++
++import (
++	"context"
++	"fmt"
++	"net/http"
++	"testing"
++	"time"
++
++	"github.com/router-for-me/CLIProxyAPI/v8/internal/auth/claude"
++	"github.com/router-for-me/CLIProxyAPI/v8/internal/auth/codex"
++	"github.com/router-for-me/CLIProxyAPI/v8/internal/privatebuild/testutil"
++)
++
++type callbackServer interface {
++	Start() error
++	Stop(context.Context) error
++}
++
++func TestPrivateBuildOAuthCallbacksStayOnLoopback(t *testing.T) {
++	for _, tc := range []struct {
++		name string
++		path string
++		new  func(int) callbackServer
++	}{
++		{"codex", "/auth/callback", func(port int) callbackServer { return codex.NewOAuthServer(port) }},
++		{"claude", "/callback", func(port int) callbackServer { return claude.NewOAuthServer(port) }},
++	} {
++		t.Run(tc.name, func(t *testing.T) {
++			port, externalAddress := testutil.CallbackPort(t)
++			server := tc.new(port)
++			if err := server.Start(); err != nil {
++				t.Fatalf("start callback: %v", err)
++			}
++			t.Cleanup(func() { _ = server.Stop(context.Background()) })
++			client := &http.Client{Transport: &http.Transport{Proxy: nil}, Timeout: time.Second,
++				CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
++			defer client.CloseIdleConnections()
++			resp, err := client.Get(fmt.Sprintf("http://localhost:%d%s?code=fixture&state=fixture", port, tc.path))
++			if err != nil {
++				t.Fatal(err)
++			}
++			defer resp.Body.Close()
++			if resp.StatusCode != http.StatusFound || resp.Header.Get("Location") != "/success" {
++				t.Fatalf("local callback failed: status=%d location=%q", resp.StatusCode, resp.Header.Get("Location"))
++			}
++			testutil.AssertNonLoopbackRefused(t, externalAddress)
++		})
++	}
++}
 diff --git a/internal/privatebuild/policy.go b/internal/privatebuild/policy.go
 new file mode 100644
 index 0000000..5d95072
@@ -953,6 +1105,61 @@ index 0000000..4c8bbb7
 +	}
 +	if err := client.Ping(ctx); !errors.Is(err, privatebuild.ErrDisabled) {
 +		t.Fatalf("Home connection was not refused before dialing: %v", err)
++	}
++}
+diff --git a/internal/privatebuild/testutil/listen.go b/internal/privatebuild/testutil/listen.go
+new file mode 100644
+index 0000000..eda5911
+--- /dev/null
++++ b/internal/privatebuild/testutil/listen.go
+@@ -0,0 +1,49 @@
++// Package testutil supplies socket fixtures for private-build regression tests.
++package testutil
++
++import (
++	"net"
++	"testing"
++	"time"
++)
++
++// CallbackPort returns an unused port and its address on a local non-loopback
++// interface, so a test can probe LAN exposure without contacting another host.
++func CallbackPort(t *testing.T) (int, string) {
++	t.Helper()
++	addrs, err := net.InterfaceAddrs()
++	if err != nil {
++		t.Fatal(err)
++	}
++	var bindErr error
++	for _, addr := range addrs {
++		ipnet, ok := addr.(*net.IPNet)
++		if !ok || ipnet.IP.To4() == nil || ipnet.IP.IsLoopback() {
++			continue
++		}
++		listener, err := net.ListenTCP("tcp4", &net.TCPAddr{IP: ipnet.IP})
++		if err != nil {
++			bindErr = err
++			continue
++		}
++		port, address := listener.Addr().(*net.TCPAddr).Port, listener.Addr().String()
++		if err := listener.Close(); err != nil {
++			t.Fatal(err)
++		}
++		return port, address
++	}
++	if bindErr != nil {
++		t.Fatalf("cannot reserve a local interface port: %v", bindErr)
++	}
++	t.Skip("no non-loopback IPv4 interface")
++	return 0, ""
++}
++
++func AssertNonLoopbackRefused(t *testing.T, address string) {
++	t.Helper()
++	conn, err := net.DialTimeout("tcp4", address, time.Second)
++	if err == nil {
++		_ = conn.Close()
++		t.Fatal("OAuth callback accepted a connection on a non-loopback interface")
 +	}
 +}
 diff --git a/internal/registry/catalog_sources.go b/internal/registry/catalog_sources.go
@@ -1506,6 +1713,66 @@ index e724674..0f675fd 100644
  		dst[key] = values
  	}
  	if len(dst) == 0 {
+diff --git a/sdk/auth/antigravity.go b/sdk/auth/antigravity.go
+index aaafb70..b9582cb 100644
+--- a/sdk/auth/antigravity.go
++++ b/sdk/auth/antigravity.go
+@@ -209,7 +209,7 @@ func startAntigravityCallbackServer(port int) (*http.Server, int, <-chan callbac
+ 	if port <= 0 {
+ 		port = antigravity.CallbackPort
+ 	}
+-	addr := fmt.Sprintf(":%d", port)
++	addr := fmt.Sprintf("127.0.0.1:%d", port)
+ 	listener, err := net.Listen("tcp", addr)
+ 	if err != nil {
+ 		return nil, 0, nil, err
+diff --git a/sdk/auth/private_build_callback_test.go b/sdk/auth/private_build_callback_test.go
+new file mode 100644
+index 0000000..f3f6ad6
+--- /dev/null
++++ b/sdk/auth/private_build_callback_test.go
+@@ -0,0 +1,41 @@
++package auth
++
++import (
++	"fmt"
++	"net/http"
++	"testing"
++	"time"
++
++	"github.com/router-for-me/CLIProxyAPI/v8/internal/privatebuild/testutil"
++)
++
++func TestPrivateBuildAntigravityCallbackStaysOnLoopback(t *testing.T) {
++	port, externalAddress := testutil.CallbackPort(t)
++	server, actualPort, results, err := startAntigravityCallbackServer(port)
++	if err != nil {
++		t.Fatalf("start callback: %v", err)
++	}
++	defer server.Close()
++	if actualPort != port {
++		t.Fatalf("callback port changed: got %d, want %d", actualPort, port)
++	}
++	client := &http.Client{Transport: &http.Transport{Proxy: nil}, Timeout: time.Second}
++	defer client.CloseIdleConnections()
++	resp, err := client.Get(fmt.Sprintf("http://localhost:%d/oauth-callback?code=fixture&state=fixture", port))
++	if err != nil {
++		t.Fatal(err)
++	}
++	defer resp.Body.Close()
++	if resp.StatusCode != http.StatusOK {
++		t.Fatalf("local callback failed: status=%d", resp.StatusCode)
++	}
++	select {
++	case result := <-results:
++		if result.Code != "fixture" || result.State != "fixture" || result.Error != "" {
++			t.Fatalf("callback result lost: %+v", result)
++		}
++	case <-time.After(time.Second):
++		t.Fatal("callback result was not delivered")
++	}
++	testutil.AssertNonLoopbackRefused(t, externalAddress)
++}
 diff --git a/sdk/cliproxy/builder.go b/sdk/cliproxy/builder.go
 index 532bde1..60a5c09 100644
 --- a/sdk/cliproxy/builder.go

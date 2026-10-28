@@ -25,7 +25,7 @@ The core applies this policy during initial loading, optional configuration fall
 
 ## Local credentials and core identity
 
-New local API and management credentials use 32 random bytes each. The old shared `123456` default is migrated. Unix configuration writers use owner-only permissions; the private application data directory is `0700`. The listener is fixed to loopback. Management HTTP clients validate TLS certificates.
+New local API and management credentials use 32 random bytes each. The old shared `123456` default is migrated. Unix configuration writers use owner-only permissions; the private application data directory is `0700`. The API listener and temporary OAuth callback listeners are fixed to loopback. Management HTTP clients validate TLS certificates.
 
 The GUI checks its compiled SHA-256 expectations before installing an archive or starting the core. Stock, modified, missing and symlinked core files are rejected. A version number or an adjacent checksum file cannot authorize another binary. Existing processes are not adopted.
 
@@ -73,7 +73,7 @@ The GitHub workflow is manual, builds a macOS ARM64 artifact and has read-only r
 
 ## Verification
 
-The source builder runs 14 focused privacy tests across nine Go packages. Additional Rust tests cover credentials, file permissions, stale remote instructions, process adoption and artifact rejection. Packaging tests exercise the real packaging CLI with disposable fixtures.
+The source builder runs 17 focused privacy tests across 11 Go packages. Additional Rust tests cover credentials, file permissions, stale remote instructions, process adoption and artifact rejection. Packaging tests exercise the real packaging CLI with disposable fixtures.
 
 Run the synthetic core integration test:
 

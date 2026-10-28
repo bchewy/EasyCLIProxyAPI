@@ -5,7 +5,8 @@ These results cover the macOS ARM64 private build. The GUI baseline is `9bbf63b2
 | Check | Result |
 |---|---|
 | Apply the complete patch to a fresh export of the pinned core | Passed |
-| Focused Go privacy tests | 14 tests across nine packages passed |
+| OAuth callback regression | Codex, Claude, Antigravity and the management forwarder reject connections through the host LAN address; localhost callbacks succeed |
+| Focused Go privacy tests | 17 tests across 11 packages passed |
 | Rust regression suite | 969 passed, zero failed, 10 ignored |
 | TypeScript and production frontend build | Passed |
 | Complete frontend suite | 1,013 passed, 32 skipped, eight failed |
@@ -21,6 +22,8 @@ These results cover the macOS ARM64 private build. The GUI baseline is `9bbf63b2
 | Local dashboard | Displayed the new request after local usage statistics were enabled |
 
 The eight baseline frontend failures concern IPC/mock inventories, button/localization/status inventories, CSS lint and OAuth quota priority display. They remain unresolved. Passing counts do not imply the entire frontend suite passes.
+
+The callback regression reproduced LAN-accessible listeners before the fix and passed after binding them to `127.0.0.1`. It uses synthetic callbacks and the test host's own interface address, without a provider connection. It skips when no non-loopback IPv4 interface exists.
 
 The synthetic core and GUI/core integration checks used OS sandbox profiles that blocked non-loopback outbound connections. The installed application does not carry a mandatory OS egress firewall. The HTTP trap is narrower than a complete syscall or DNS trace. Source tests exercise disabled periodic paths directly, without waiting for their normal timers.
 

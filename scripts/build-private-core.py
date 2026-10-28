@@ -68,7 +68,8 @@ def main():
         run('go', 'test', '-mod=readonly', '-count=1', '-run', 'TestPrivateBuild',
             './internal/privatebuild', './internal/registry', './internal/managementasset',
             './internal/misc', './internal/runtime/executor/helps', './internal/store',
-            './internal/util', './internal/pluginhost', './sdk/cliproxy', cwd=work, env=env)
+            './internal/util', './internal/pluginhost', './sdk/cliproxy',
+            './internal/api/handlers/management', './sdk/auth', cwd=work, env=env)
         flags = f"-s -w -X main.Version={lock['version']}-private -X main.Commit={commit}-private.{patch_digest[:12]}"
         run('go', 'build', '-mod=readonly', '-trimpath', '-buildvcs=false', '-ldflags', flags,
             '-o', str(binary), './cmd/server', cwd=work, env=env)
